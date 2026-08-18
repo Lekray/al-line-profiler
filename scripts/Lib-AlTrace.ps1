@@ -41,6 +41,12 @@
          времени: у соседних событий метки совпадают сплошь и рядом.
       5. Сессии разбираются независимыми стеками: в канале события параллельных
          сессий перемешаны.
+      6. Ошибка C/AL — это ВЫХОД из функции, а не пометка на полях: платформа шлёт
+         ALFunctionError вместо ALFunctionStop. Рамка снимается по нему так же, как
+         по выходу, иначе строка вызова забирает себе весь остаток трассы.
+      7. SQL-операция не переживает свой оператор. Если Stop потерян, огрызок
+         снимается при закрытии оператора: иначе список открытых операций отравлен
+         навсегда и SQL-время сессии перестаёт учитываться — молча, без ошибок.
 
     Подключение:  . (Join-Path $PSScriptRoot 'Lib-AlTrace.ps1')
 #>
@@ -474,6 +480,18 @@ function Close-AlFrameStatement {
     #>
     param([hashtable] $Frame, [int64] $EndTicks, [hashtable] $State, [hashtable] $Stats)
 
+    # Незакрытые SQL-операции этой рамки снимаются ЗДЕСЬ, до выхода по HasStmt.
+    # Парного Stop у них уже не будет: оператор, внутри которого они начались,
+    # закончился. Оставить их нельзя - список открытых операций отравляется навсегда,
+    # позиция следующей операции никогда больше не будет нулевой, и SQL-время сессии
+    # перестаёт учитываться совсем, молча и без единого предупреждения. Обратный отказ
+    # не лучше: поздний Stop той же операции спарился бы с древним огрызком и записал
+    # на его строку фантомные секунды.
+    $q = $State.Sql
+    for ($i = $q.Count - 1; $i -ge 0; $i--) {
+        if ([object]::ReferenceEquals($q[$i].Frame, $Frame)) { $q.RemoveAt($i); $Stats.SqlDropped++ }
+    }
+
     if (-not $Frame.HasStmt) { return }
     $Frame.HasStmt = $false
 
@@ -650,7 +668,8 @@ function Measure-AlLines {
         Events = 0; Stmt = 0; Start = 0; Stop = 0; Error = 0; SqlStart = 0; SqlStop = 0; Other = 0
         OrphanFrames = 0; MissedStarts = 0; UnmatchedStops = 0; ForcedPops = 0
         UnclosedFrames = 0; RecursiveFrames = 0; NegativeSelf = 0; Unresolved = 0
-        SqlOrphan = 0; SqlUnmatched = 0; SqlNested = 0; MaxDepth = 0
+        SqlOrphan = 0; SqlUnmatched = 0; SqlNested = 0; SqlDropped = 0; MaxDepth = 0
+        ErrorPops = 0; ErrorUnmatched = 0
         SqlTicks = 0L; SqlCount = 0L; RootTicks = 0L; SelfTicks = 0L
         Lines = 0; AllLines = 0
         Sessions = @{}
@@ -782,19 +801,45 @@ function Measure-AlLines {
             'Error' {
                 $stats.Error++
                 $stack = $st.Stack
-                if ($stack.Count -gt 0) {
+                if ($stack.Count -eq 0) { continue }
+                # Функция, отработавшая с ошибкой, ЗАВЕРШИЛАСЬ: парного ALFunctionStop у
+                # неё не будет, платформа шлёт вместо него ALFunctionError - «failed»
+                # вместо «exited normally». Раньше рамка оставалась на стеке до конца
+                # разбора, и в Total строки вызова втягивалось всё, что случилось в
+                # сессии после ошибки: хвост закрывал её последней меткой сессии.
+                # Поэтому ошибка сворачивает стек так же, как выход.
+                #
+                # Перехваченная ошибка этим не ломается: вызывающий продолжает работу
+                # своими событиями оператора, его рамка ниже по стеку и не трогается.
+                $found = -1
+                for ($k = $stack.Count - 1; $k -ge 0; $k--) {
+                    if ($stack[$k].FunctionName -eq $ev.FunctionName -and
+                        $stack[$k].ObjectId     -eq $ev.ObjectId -and
+                        $stack[$k].ObjectType   -eq $ev.ObjectType) { $found = $k; break }
+                }
+                if ($found -lt 0) {
+                    # Своей рамки на стеке нет - закрываем хотя бы открытый оператор
+                    # верхней, иначе его Total дотянется до следующего события.
+                    $stats.ErrorUnmatched++
                     Close-AlFrameStatement -Frame $stack[$stack.Count - 1] -EndTicks $ev.Ticks -State $st -Stats $stats
+                    continue
+                }
+                while ($stack.Count -gt $found) {
+                    Pop-AlFrame -State $st -EndTicks $ev.Ticks -Stats $stats
+                    $stats.ErrorPops++
                 }
             }
 
             'PairStart' {
                 $stats.SqlStart++
                 $stack = $st.Stack
-                $b = $null
-                if ($stack.Count -gt 0) { $b = $stack[$stack.Count - 1].StmtBucket }
+                $b = $null; $fr = $null
+                if ($stack.Count -gt 0) { $fr = $stack[$stack.Count - 1]; $b = $fr.StmtBucket }
                 if ($null -eq $b) { $stats.SqlOrphan++ }
                 if ($st.Sql.Count -gt 0) { $stats.SqlNested++ }
-                [void]$st.Sql.Add(@{ Op = $ev.OpName; Ticks = $ev.Ticks; Bucket = $b; Depth = $st.Sql.Count })
+                # Рамка запоминается, чтобы операцию было чем снять, если Stop потерялся:
+                # закрытие оператора этой рамки её и уберёт (Close-AlFrameStatement).
+                [void]$st.Sql.Add(@{ Op = $ev.OpName; Ticks = $ev.Ticks; Bucket = $b; Frame = $fr })
             }
 
             'PairStop' {
@@ -807,13 +852,18 @@ function Measure-AlLines {
                 $q.RemoveAt($ix)
                 $d = $ev.Ticks - $o.Ticks
                 if ($d -lt 0) { $d = 0L }
+                # Вложенность определяется ПОЛОЖЕНИЕМ в списке открытых операций, а не
+                # отметкой, снятой в момент начала: после снятия огрызков список сам себя
+                # чинит, а запомненная когда-то глубина осталась бы завышенной навсегда.
+                # Нулевая позиция - операция самая внешняя из открытых, её время и идёт
+                # в зачёт; вложенная не удваивает время, наружная уже включает её.
+                $outer = ($ix -eq 0)
                 if ($null -ne $o.Bucket) {
                     $o.Bucket.SqlCount++
-                    # вложенная операция не удваивает время: наружная уже включает её
-                    if ($o.Depth -eq 0) { $o.Bucket.SqlTicks += $d }
+                    if ($outer) { $o.Bucket.SqlTicks += $d }
                 }
                 $stats.SqlCount++
-                if ($o.Depth -eq 0) { $stats.SqlTicks += $d }
+                if ($outer) { $stats.SqlTicks += $d }
             }
 
             default { $stats.Other++ }
@@ -827,6 +877,8 @@ function Measure-AlLines {
             Pop-AlFrame -State $st -EndTicks $st.Last -Stats $stats
             $stats.UnclosedFrames++
         }
+        # Операции, начатые вообще без рамки: снятие по рамке до них не добирается.
+        if ($st.Sql.Count -gt 0) { $stats.SqlDropped += $st.Sql.Count; $st.Sql.Clear() }
         $stats.RootTicks += $st.RootTicks
         $stats.SelfTicks += $st.SelfTicks
         $stats.Sessions[$sid] = [pscustomobject]@{
@@ -1069,6 +1121,9 @@ function Get-AlRunSummary {
         if ($MeasureStats.NegativeSelf    -gt 0) { [void]$warnings.Add(('операторов с отрицательным Self: {0}' -f $MeasureStats.NegativeSelf)) }
         if ($MeasureStats.SqlUnmatched    -gt 0) { [void]$warnings.Add(('SQL-событий без пары: {0}' -f $MeasureStats.SqlUnmatched)) }
         if ($MeasureStats.SqlOrphan       -gt 0) { [void]$warnings.Add(('SQL вне оператора C/AL: {0}' -f $MeasureStats.SqlOrphan)) }
+        if ($MeasureStats.SqlDropped      -gt 0) { [void]$warnings.Add(('SQL-операций без завершения: {0} — их время не учтено ни на одной строке' -f $MeasureStats.SqlDropped)) }
+        if ($MeasureStats.ErrorPops       -gt 0) { [void]$warnings.Add(('рамок свёрнуто по ошибке C/AL: {0}' -f $MeasureStats.ErrorPops)) }
+        if ($MeasureStats.ErrorUnmatched  -gt 0) { [void]$warnings.Add(('ошибок C/AL без своей рамки на стеке: {0}' -f $MeasureStats.ErrorUnmatched)) }
         if ($MeasureStats.Unresolved      -gt 0) { [void]$warnings.Add(('операторов без номера строки: {0}' -f $MeasureStats.Unresolved)) }
     }
 

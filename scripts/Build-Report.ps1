@@ -174,7 +174,11 @@ foreach ($m in $metrics.Values) {
     $sumSelf += $m.SelfMs; $sumSql += $m.SqlMs
     if ($m.SelfMs -gt $maxSelf) { $maxSelf = $m.SelfMs }
 }
-$attrTotal = $sumSelf + $sumSql
+# Вклад строки - это её Self, и БОЛЬШЕ НИЧЕГО. SqlMs не слагаемое, а часть Self:
+# запрос выполняется внутри самого оператора, из Self он не вычитается (Lib-AlTrace.ps1,
+# шапка: «чистое время C/AL - SelfNoSqlMs»). Сложение Self+Sql удваивало SQL и смещало
+# ранжирование в пользу SQL-строк вплоть до двух раз.
+$attrTotal = $sumSelf
 
 # Подсказки уровня Info в счётчик не входят: линтер по миллиону строк выдаёт их
 # пачками, и они утопят три-пять настоящих находок. В подсказке они остаются.
@@ -323,7 +327,7 @@ Add-Line ('<span>изменён: <b>{0} {1}</b></span>' -f $info.Date, $info.Tim
 if ($hasTimings) {
     Add-Line ('<span>строк с данными: <b>{0}</b></span>' -f $metrics.Count)
     Add-Line ('<span>Self: <b>{0} мс</b></span>' -f (Format-Ms $sumSelf))
-    Add-Line ('<span>SQL: <b>{0} мс</b></span>' -f (Format-Ms $sumSql))
+    Add-Line ('<span>в т.ч. SQL: <b>{0} мс</b></span>' -f (Format-Ms $sumSql))
 }
 if ($hintsAll -gt 0) { Add-Line ('<span>подсказок: <b>{0}</b></span>' -f $hintsAll) }
 Add-Line ('<span>нумерация: <b>платформенная</b></span>')
@@ -352,15 +356,15 @@ if ($hasTimings) {
     $top = @()
     foreach ($ln in $metrics.Keys) {
         $m = $metrics[$ln]
-        $a = $m.SelfMs + $m.SqlMs
+        $a = $m.SelfMs
         if ($a -le 0) { continue }
         $top += [pscustomobject]@{ LineNo = $ln; Attr = $a; M = $m }
     }
     $top = @($top | Sort-Object -Property Attr -Descending | Select-Object -First $TopCount)
     if ($top.Count -gt 0) {
         Add-Line '<div class="top">'
-        Add-Line ('<h2>Топ строк по вкладу (Self + SQL), первые {0}</h2>' -f $top.Count)
-        Add-Line '<table class="top"><thead><tr><th>Строка</th><th>Self, мс</th><th>SQL, мс</th><th>Вызовов</th><th>% вклада</th><th class="c">Код</th></tr></thead><tbody>'
+        Add-Line ('<h2>Топ строк по собственному времени, первые {0}</h2>' -f $top.Count)
+        Add-Line '<table class="top"><thead><tr><th>Строка</th><th>Self, мс</th><th>в т.ч. SQL, мс</th><th>Вызовов</th><th>% вклада</th><th class="c">Код</th></tr></thead><tbody>'
         foreach ($t in $top) {
             $txt = ($listing[$t.LineNo - 1].Text).Trim()
             $pct = if ($attrTotal -gt 0) { 100.0 * $t.Attr / $attrTotal } else { 0 }
