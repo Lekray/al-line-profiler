@@ -516,31 +516,9 @@ function Get-AlSymbols {
     return ,$out
 }
 
-function Get-AlHeaderFuncName {
-    <#
-    .SYNOPSIS
-        Имя функции/триггера из заголовка листинга (текст до скобки параметров).
-
-    .DESCRIPTION
-        Ловушка: имя поля может содержать скобки — 'Unit Cost (LCY) - OnValidate()'.
-        Get-AlFunctionMap режет по ПЕРВОЙ '(', получая 'Unit Cost '; здесь берётся
-        ПОСЛЕДНЯЯ открывающая скобка нулевой глубины (кавычки учитываются) — это
-        и есть начало списка параметров.
-    #>
-    param([string]$HeaderText)
-    $inSq = $false; $inDq = $false; $depth = 0; $open = -1
-    for ($i = 0; $i -lt $HeaderText.Length; $i++) {
-        $ch = $HeaderText[$i]
-        if ($inSq) { if ($ch -eq "'") { $inSq = $false }; continue }
-        if ($inDq) { if ($ch -eq '"') { $inDq = $false }; continue }
-        if ($ch -eq "'") { $inSq = $true; continue }
-        if ($ch -eq '"') { $inDq = $true; continue }
-        if ($ch -eq '(') { if ($depth -eq 0) { $open = $i }; $depth++; continue }
-        if ($ch -eq ')') { if ($depth -gt 0) { $depth-- }; continue }
-    }
-    if ($open -ge 0) { return $HeaderText.Substring(0, $open).Trim() }
-    return $HeaderText.Trim()
-}
+# Get-AlHeaderFuncName переехала в Lib-AlListing.ps1: имя присваивается строке
+# листинга, то есть слоем ниже. Здесь она доступна по наследству — эта библиотека
+# подключает Lib-AlListing.ps1 сама (см. шапку файла).
 
 # === Get-AlStructure ========================================================
 #
@@ -758,9 +736,11 @@ function Get-AlStructure {
     $lineRecs  = New-Object System.Collections.Generic.List[object]
 
     foreach ($fn in $funcMap) {
-        # имя заново из заголовка: Get-AlFunctionMap режет по первой '(' и портит
-        # имена вида 'Unit Cost (LCY) - OnValidate' (см. Get-AlHeaderFuncName)
-        $fnName = Get-AlHeaderFuncName $rows[$fn.HeaderLine - 1].Text
+        # Имя берётся из карты как есть: Get-AlListing присваивает его через
+        # Get-AlHeaderFuncName, и переопределять больше нечего. Раньше здесь стояло
+        # повторное чтение заголовка по индексу $rows[$fn.HeaderLine - 1] — оно молча
+        # держалось на том, что позиция в массиве равна номеру строки минус один.
+        $fnName = $fn.Name
 
         # токены тела функции (только строки Kind=Code, по очищенному тексту)
         $tokens = New-Object System.Collections.Generic.List[object]

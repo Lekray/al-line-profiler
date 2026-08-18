@@ -92,6 +92,43 @@ function Get-AlObjectInfo {
     return $null
 }
 
+function Get-AlHeaderFuncName {
+    <#
+    .SYNOPSIS
+        Имя функции или триггера из заголовка листинга — текст до списка параметров.
+
+    .DESCRIPTION
+        Ловушка: имя ПОЛЯ само содержит скобки, и заголовки таких триггеров выглядят
+        как 'Amount (LCY) - OnValidate()'. Обрезка по ПЕРВОЙ '(' даёт из него 'Amount '
+        (с хвостовым пробелом) — а рядом в том же объекте живёт поле «Amount» со своим
+        'Amount - OnValidate()', и две разные функции получают неразличимую подпись.
+        В Table 81 таких заголовков больше трёх сотен.
+
+        Начало списка параметров — это ПОСЛЕДНЯЯ открывающая скобка нулевой глубины;
+        кавычки при подсчёте глубины учитываются, потому что имя поля в кавычках может
+        содержать что угодно.
+
+        Живёт здесь, а не в Lib-AlParse.ps1, потому что имя присваивается строке
+        листинга — то есть на слой ниже разбора. Lib-AlParse подключает эту библиотеку
+        сам и получает функцию по наследству.
+    #>
+    param([string]$HeaderText)
+    if ($null -eq $HeaderText) { return '' }
+    $inSq = $false; $inDq = $false; $depth = 0; $open = -1
+    for ($i = 0; $i -lt $HeaderText.Length; $i++) {
+        $ch = $HeaderText[$i]
+        if ($inSq) { if ($ch -eq "'") { $inSq = $false }; continue }
+        if ($inDq) { if ($ch -eq '"') { $inDq = $false }; continue }
+        if ($ch -eq "'") { $inSq = $true; continue }
+        if ($ch -eq '"') { $inDq = $true; continue }
+        if ($ch -eq '(') { if ($depth -eq 0) { $open = $i }; $depth++; continue }
+        if ($ch -eq ')') { if ($depth -gt 0) { $depth-- }; continue }
+    }
+    # $open = 0 — заголовок начинается со скобки; резать нечего, отдаём как есть
+    if ($open -gt 0) { return $HeaderText.Substring(0, $open).Trim() }
+    return $HeaderText.Trim()
+}
+
 function Get-AlListing {
     <#
     .SYNOPSIS
@@ -133,8 +170,7 @@ function Get-AlListing {
         elseif (-not [char]::IsWhiteSpace($raw[0])) {
             # нулевая колонка занята — это заголовок функции или триггера
             $kind = 'Function'; $indent = 1
-            $paren = $raw.IndexOf('(')
-            if ($paren -gt 0) { $currFunc = $raw.Substring(0, $paren) } else { $currFunc = $trimmed }
+            $currFunc = Get-AlHeaderFuncName $raw
         }
         elseif ($trimmed.StartsWith('//')) {
             $kind = 'Comment'; $indent = 2

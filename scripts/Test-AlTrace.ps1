@@ -25,6 +25,7 @@
 [CmdletBinding()]
 param()
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Lib-AlListing.ps1')
 . (Join-Path $PSScriptRoot 'Lib-AlTrace.ps1')
 
 $MsTicks = 10000L
@@ -45,8 +46,10 @@ function New-Ev {
         [string] $Fn   = 'A',
         [int]    $Line = 0,
         [string] $Op   = '',
-        [int]    $Oi   = 110200
+        [int]    $Oi   = 110200,
+        [string] $Stmt = ''
     )
+    if (-not $Stmt) { $Stmt = 'оператор строки {0}' -f $Line }
     $script:Seq++
     return [pscustomobject]@{
         Seq          = $script:Seq
@@ -60,7 +63,7 @@ function New-Ev {
         ObjectId     = $Oi
         FunctionName = $Fn
         LineNumber   = $Line
-        Statement    = ('оператор строки {0}' -f $Line)
+        Statement    = $Stmt
         RecordId     = [int64]$script:Seq
         ThreadId     = 1
         Sql          = ''
@@ -408,6 +411,67 @@ Test-Value 'калибровка не сошлась: строки по текс
 Remove-Item -LiteralPath $r12.Dir -Recurse -Force -ErrorAction SilentlyContinue
 
 # ---------------------------------------------------------------------------
+# 12. Находка №19: ничья кандидатов. Строки 2, 3 и 4 листинга совпадают дословно,
+#     поэтому выборка, целиком вставшая на них, одинаково хороша и для смещения 0,
+#     и для смещения +1. Прежде побеждало меньшее |смещение| - ноль, - и неверная
+#     нумерация уходила в отчёт со стопроцентной достоверностью. Верное смещение
+#     доказывает событие ЗА пределами выборки: на строке 5 тексты расходятся.
+# ---------------------------------------------------------------------------
+function New-TestListing {
+    <#
+    .SYNOPSIS
+        Листинг с тремя дословно одинаковыми строками подряд.
+    #>
+    $rows = @(
+        @{ N = 1; K = 'Function'; T = 'MyFunc()' }
+        @{ N = 2; K = 'Code';     T = '  Tick;' }
+        @{ N = 3; K = 'Code';     T = '  Tick;' }
+        @{ N = 4; K = 'Code';     T = '  Tick;' }
+        @{ N = 5; K = 'Code';     T = '  Done := Done + 1;' }
+        @{ N = 6; K = 'Code';     T = '  Finish;' }
+    )
+    $out = @()
+    foreach ($r in $rows) {
+        $out += [pscustomobject]@{ LineNo = $r.N; Kind = $r.K; FunctionName = 'MyFunc'
+                                   Indent = $(if ($r.K -eq 'Function') { 1 } else { 2 }); Text = $r.T }
+    }
+    return $out
+}
+
+$lst19 = New-TestListing
+
+# выборка (-SampleSize 2) целиком на дубле; различающее событие идёт третьим
+$ev19 = @(
+    (New-Ev -Kind Stmt -Ms 1 -Fn MyFunc -Line 2 -Stmt 'Tick;'),
+    (New-Ev -Kind Stmt -Ms 2 -Fn MyFunc -Line 2 -Stmt 'Tick;'),
+    (New-Ev -Kind Stmt -Ms 3 -Fn MyFunc -Line 4 -Stmt 'Done := Done + 1;')
+)
+$cal19 = Resolve-AlLineOffset -Events $ev19 -Listing $lst19 -ObjectType 5 -ObjectId 110200 -SampleSize 2
+Test-Value 'ничья: смещение решено текстом' 1     $cal19.Offset
+Test-Value 'ничья: разрешена'               $false $cal19.Ambiguous
+Test-Value 'ничья: калибровка принята'      $true  $cal19.Ok
+
+# то же самое, но различающего события в трассе нет вовсе: выбирать не на чем
+$ev20 = @(
+    (New-Ev -Kind Stmt -Ms 1 -Fn MyFunc -Line 2 -Stmt 'Tick;'),
+    (New-Ev -Kind Stmt -Ms 2 -Fn MyFunc -Line 2 -Stmt 'Tick;'),
+    (New-Ev -Kind Stmt -Ms 3 -Fn MyFunc -Line 2 -Stmt 'Tick;')
+)
+$cal20 = Resolve-AlLineOffset -Events $ev20 -Listing $lst19 -ObjectType 5 -ObjectId 110200 -SampleSize 2
+Test-Value 'ничья без улик: признана неразрешимой' $true  $cal20.Ambiguous
+Test-Value 'ничья без улик: калибровка забракована' $false $cal20.Ok
+Test-Value 'ничья без улик: резервный маппинг есть' 2     $cal20.Fallback.Count
+
+# осторожность не должна съедать обычный случай: когда ничьей нет, всё как было
+$ev21 = @(
+    (New-Ev -Kind Stmt -Ms 1 -Fn MyFunc -Line 4 -Stmt 'Done := Done + 1;'),
+    (New-Ev -Kind Stmt -Ms 2 -Fn MyFunc -Line 5 -Stmt 'Finish;')
+)
+$cal21 = Resolve-AlLineOffset -Events $ev21 -Listing $lst19 -ObjectType 5 -ObjectId 110200
+Test-Value 'без ничьей: смещение прежнее' 1     $cal21.Offset
+Test-Value 'без ничьей: калибровка принята' $true $cal21.Ok
+
+# ---------------------------------------------------------------------------
 # 13-16. Находки №3, №5, №6, №7: отчёт. Всё проверяется по готовому HTML.
 # ---------------------------------------------------------------------------
 function New-ReportCase {
@@ -541,6 +605,39 @@ $h18 = New-ReportCase -HintHeader $hdr18 `
 Test-Value 'чужой тип: своя подсказка на месте' $true  ($h18.Contains('своя подсказка'))
 Test-Value 'чужой тип: чужая отсеяна'           $false ($h18.Contains('чужая подсказка'))
 Test-Value 'чужой тип: в шапке посчитана одна'  $true  ($h18 -match 'подсказок:\s*<b>1</b>')
+
+# ---------------------------------------------------------------------------
+# 19. Находка №23: имя триггера резалось по ПЕРВОЙ '(' - а скобки бывают в имени
+#     ПОЛЯ. Из 'Amount (LCY) - OnValidate()' получалось 'Amount ' с хвостовым
+#     пробелом, и в панели функций отчёта оно стояло рядом с настоящим
+#     'Amount - OnValidate' соседнего поля: две разные функции, подпись одна.
+#     В Table 81 таких заголовков больше трёх сотен.
+# ---------------------------------------------------------------------------
+Test-Value 'имя: скобки поля не режут заголовок' 'Amount (LCY) - OnValidate' `
+    (Get-AlHeaderFuncName 'Amount (LCY) - OnValidate()')
+Test-Value 'имя: точка и скобки вместе'          'Allocated Amt. (LCY) - OnDrillDown' `
+    (Get-AlHeaderFuncName 'Allocated Amt. (LCY) - OnDrillDown()')
+Test-Value 'имя: список параметров отрезан'      'MyFunc' `
+    (Get-AlHeaderFuncName 'MyFunc(No : Code[20];Qty : Decimal)')
+Test-Value 'имя: скобки в кавычках не считаются' '"Amount (LCY)" - OnValidate' `
+    (Get-AlHeaderFuncName '"Amount (LCY)" - OnValidate()')
+Test-Value 'имя: заголовок без скобок'           'Documentation' `
+    (Get-AlHeaderFuncName 'Documentation')
+
+# и то же самое насквозь: два триггера одного поля не должны слиться в одну подпись
+$dir19 = Join-Path ([System.IO.Path]::GetTempPath()) ('lp-nm-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $dir19 -Force | Out-Null
+[System.IO.File]::WriteAllText((Join-Path $dir19 '1_110206.al'),
+    "Amount - OnValidate()`r`n  TestField(Amount);`r`n" +
+    "Amount (LCY) - OnValidate()`r`n  TestField(Amount);`r`n" +
+    "Amount (LCY) - OnLookup()`r`n  EXIT;`r`n",
+    (New-Object System.Text.UTF8Encoding($false)))
+$map19 = @(Get-AlFunctionMap -Listing (Get-AlListing -ObjectType 1 -ObjectId 110206 -SourceRoot $dir19))
+$nm19  = @($map19 | ForEach-Object { $_.Name })
+Test-Value 'три поля: функций найдено'      3 $map19.Count
+Test-Value 'три поля: подписи различаются'  3 (@($nm19 | Sort-Object -Unique)).Count
+Test-Value 'три поля: обрубка нет'          $false ($nm19 -contains 'Amount ')
+Remove-Item -LiteralPath $dir19 -Recurse -Force -ErrorAction SilentlyContinue
 
 # ---------------------------------------------------------------------------
 # вердикт

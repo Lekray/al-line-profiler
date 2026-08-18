@@ -314,6 +314,16 @@ function Resolve-AlLineOffset {
         сличается с нормализованным текстом строки листинга; побеждает кандидат с
         наибольшей долей совпадений.
 
+        Ничья. Прежде она решалась в пользу МЕНЬШЕГО |смещения|, и это молчаливый
+        отказ: если вся выборка встала на строки-дубли (в листинге они есть, порядка
+        полутора процентов), кандидаты совпадают дословно, и ноль обгоняет верную
+        единицу - неверное смещение уходит в отчёт как стопроцентно достоверное.
+        Меньшее |смещение| - не довод, а привычка. Ничья означает ровно одно: в
+        выборке нет РАЗЛИЧАЮЩИХ событий, то есть таких, у которых текст строки при
+        разных смещениях разный. Они ищутся по всей трассе, а не по первым
+        -SampleSize событиям, и решают спор текстом. Если различающих событий нет
+        вовсе - Ok=$false, Ambiguous=$true, и в дело идёт резервный маппинг.
+
         Доля ниже -MinMatchPct — Ok=$false. Тогда возвращается резервный маппинг
         Fallback: хеш-таблица «имя функции + TAB + ВЕРХНИЙ_РЕГИСТР(нормализованный
         текст) -> номер строки», построенная только по ОДНОЗНАЧНЫМ парам (текст,
@@ -381,19 +391,66 @@ function Resolve-AlLineOffset {
         }
         $pct = 0.0
         if ($sample.Count -gt 0) { $pct = 100.0 * ($exact + $prefix) / $sample.Count }
-        $row = [pscustomobject]@{ Offset = $c; MatchPct = $pct; ExactCount = $exact; PrefixCount = $prefix }
+        $row = [pscustomobject]@{ Offset = $c; MatchPct = $pct; ExactCount = $exact
+                                  PrefixCount = $prefix; Decisive = 0 }
         [void]$rows.Add($row)
-        # при равной доле совпадений побеждает большее число ТОЧНЫХ, затем меньшее |смещение|
+        # при равной доле совпадений побеждает большее число ТОЧНЫХ; дальше - ничья,
+        # и разбирается она ниже текстом, а не величиной смещения
         if ($null -eq $best) { $best = $row }
         elseif ($row.MatchPct -gt $best.MatchPct) { $best = $row }
-        elseif ($row.MatchPct -eq $best.MatchPct) {
-            if ($row.ExactCount -gt $best.ExactCount) { $best = $row }
-            elseif ($row.ExactCount -eq $best.ExactCount -and
-                    [math]::Abs($row.Offset) -lt [math]::Abs($best.Offset)) { $best = $row }
-        }
+        elseif ($row.MatchPct -eq $best.MatchPct -and $row.ExactCount -gt $best.ExactCount) { $best = $row }
     }
 
-    $ok       = ($sample.Count -gt 0 -and $null -ne $best -and $best.MatchPct -ge $MinMatchPct)
+    # Разбор ничьей. Кандидаты, совпавшие и по доле, и по числу точных, неразличимы
+    # на этой выборке - значит выборка состоит из строк, которые при разных смещениях
+    # выглядят одинаково. Ищем событие, у которого тексты строк при этих смещениях
+    # РАЗНЫЕ: только оно и может рассудить. Идём по всей трассе - в выборку такие
+    # события не попали именно потому, что она обрезана первыми -SampleSize.
+    $tie = @()
+    foreach ($r in $rows) {
+        if ($r.MatchPct -eq $best.MatchPct -and $r.ExactCount -eq $best.ExactCount) { $tie += $r }
+    }
+    $ambiguous = $false
+
+    if ($tie.Count -gt 1 -and $best.MatchPct -gt 0) {
+        $decided = 0
+        foreach ($e in $Events) {
+            if ($decided -ge $SampleSize) { break }
+            if ($e.Kind -ne 'Stmt') { continue }
+            if ($ObjectType -ge 0 -and $e.ObjectType -ne $ObjectType) { continue }
+            if ($ObjectId   -ge 0 -and $e.ObjectId   -ne $ObjectId)   { continue }
+            if ($e.LineNumber -lt 0) { continue }
+
+            $t0 = $null; $differs = $false; $firstCand = $true
+            foreach ($r in $tie) {
+                $ln = $e.LineNumber + $r.Offset
+                $tx = ''
+                if ($ln -ge 1 -and $ln -le $maxLine) { $tx = [string]$norm[$ln] }
+                if ($firstCand) { $t0 = $tx; $firstCand = $false }
+                elseif ($tx -ne $t0) { $differs = $true }
+            }
+            if (-not $differs) { continue }
+
+            $decided++
+            $st = ConvertTo-AlNormText $e.Statement
+            foreach ($r in $tie) {
+                $ln = $e.LineNumber + $r.Offset
+                if ($ln -lt 1 -or $ln -gt $maxLine) { continue }
+                if ((Test-AlTextMatch $st ([string]$norm[$ln])) -gt 0) { $r.Decisive = $r.Decisive + 1 }
+            }
+        }
+
+        $win = $null; $draw = $false
+        foreach ($r in $tie) {
+            if ($null -eq $win -or $r.Decisive -gt $win.Decisive) { $win = $r; $draw = $false }
+            elseif ($r.Decisive -eq $win.Decisive) { $draw = $true }
+        }
+        if ($null -ne $win -and $win.Decisive -gt 0 -and -not $draw) { $best = $win }
+        else { $ambiguous = $true }
+    }
+
+    $ok       = ($sample.Count -gt 0 -and $null -ne $best -and
+                 $best.MatchPct -ge $MinMatchPct -and -not $ambiguous)
     $msg      = ''
     $fallback = $null
 
@@ -411,6 +468,16 @@ function Resolve-AlLineOffset {
 
         if ($sample.Count -eq 0) {
             $msg = 'В трассировке нет событий оператора по этому объекту — калибровать не на чем.'
+        }
+        elseif ($ambiguous) {
+            $lst = @()
+            foreach ($r in $tie) { $lst += ('{0}{1}' -f $(if ($r.Offset -gt 0) { '+' } else { '' }), $r.Offset) }
+            $msg = ('Смещения {0} совпали одинаково ({1:N1} %), и ни одного различающего события ' +
+                    'в трассе нет: строки объекта в этих местах повторяются дословно. Выбирать ' +
+                    'смещение не на чем, меньшее по модулю — не довод. Резервный маппинг ' +
+                    '(функция + текст) построен, однозначных строк {2}; передайте его в ' +
+                    'Measure-AlLines: -FallbackMap <карта> -LineSource Fallback.') -f
+                    ($lst -join ' и '), $best.MatchPct, $fallback.Count
         }
         else {
             $msg = ('Совпадений {0:N1} % при пороге {1:N0} %. Нумерация не сошлась: объект в базе ' +
@@ -431,6 +498,7 @@ function Resolve-AlLineOffset {
         PrefixCount = $bPre
         Sampled     = $sample.Count
         Ok          = $ok
+        Ambiguous   = $ambiguous
         Candidates  = $rows
         Fallback    = $fallback
         Message     = $msg
