@@ -408,6 +408,141 @@ Test-Value 'калибровка не сошлась: строки по текс
 Remove-Item -LiteralPath $r12.Dir -Recurse -Force -ErrorAction SilentlyContinue
 
 # ---------------------------------------------------------------------------
+# 13-16. Находки №3, №5, №6, №7: отчёт. Всё проверяется по готовому HTML.
+# ---------------------------------------------------------------------------
+function New-ReportCase {
+    <#
+    .SYNOPSIS
+        Дамп из трёх строк, при желании метрики и подсказки; возвращает текст HTML
+        ('' — если отчёт не собрался вовсе).
+    #>
+    param([string[]] $MetricRows, [string[]] $HintRows, [string[]] $HintHeader)
+    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('lp-rep-' + [guid]::NewGuid().ToString('N'))
+    $src = Join-Path $tmp 'src'
+    New-Item -ItemType Directory -Path $src -Force | Out-Null
+    $u = New-Object System.Text.UTF8Encoding($false)
+    $t = [char]9
+
+    [System.IO.File]::WriteAllText((Join-Path $src '5_110200.al'),
+        "MyFunc()`r`n  ПервыйОператор;`r`n  ВторойОператор;`r`n", $u)
+    [System.IO.File]::WriteAllText((Join-Path $src 'index.tsv'),
+        (('ObjectType','TypeName','ObjectId','Name','Lines','Bytes','Compiled','Date','Time','VersionList','Hash') -join $t) + "`r`n" +
+        (('5','Codeunit','110200','Проверка','3','60','1','18.08.26','12:00:00','TEST','0') -join $t) + "`r`n", $u)
+
+    # Не $args: это автоматическая переменная, и присваивание ей сбивает разбор
+    # собственных параметров функции.
+    $ba = @{ ObjectType = 5; ObjectId = 110200; SourceRoot = $src }
+    if ($MetricRows) {
+        $mf = Join-Path $tmp 'lines.tsv'
+        [System.IO.File]::WriteAllText($mf,
+            (('ObjectType','ObjectId','LineNo','Hits','TotalMs','SelfMs','MinMs','MaxMs','SqlCount','SqlMs','Stmts') -join $t) + "`r`n" +
+            (($MetricRows -join "`r`n") + "`r`n"), $u)
+        $ba['MetricsFile'] = $mf
+    }
+    if ($HintRows) {
+        $hf = Join-Path $tmp 'hints.tsv'
+        $hh = $HintHeader
+        if (-not $hh) { $hh = @('LineNo','Rule','Message','Severity') }
+        [System.IO.File]::WriteAllText($hf,
+            (($hh -join $t) + "`r`n") +
+            (($HintRows -join "`r`n") + "`r`n"), $u)
+        $ba['HintsFile'] = $hf
+    }
+    $html = Join-Path $tmp 'report.html'
+    $ba['OutFile'] = $html
+    $text = ''
+    try { & (Join-Path $PSScriptRoot 'Build-Report.ps1') @ba *>$null } catch { }
+    if (Test-Path -LiteralPath $html) { $text = [System.IO.File]::ReadAllText($html, [System.Text.Encoding]::UTF8) }
+    Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    return $text
+}
+
+function Get-ChipTitle {
+    <#
+    .SYNOPSIS
+        Значение title у чипа подсказки, содержащего заданную подстроку.
+
+    .DESCRIPTION
+        Подстрока обязательна: у строки заголовка функции свой чип со счётчиком по
+        телу, и он идёт в документе первым - без отбора вернулся бы он.
+    #>
+    param([string] $Html, [string] $Contains)
+    foreach ($m in [regex]::Matches($Html, '<span class="chip [^"]*" title="([^"]*)"')) {
+        $v = $m.Groups[1].Value
+        if (-not $Contains -or $v.Contains($Contains)) { return $v }
+    }
+    return ''
+}
+
+$tabc = [char]9
+
+# 13. Находка №3: кавычка в тексте подсказки закрывала атрибут, и хвост совета -
+#     как раз действенная часть, состав ключа и цена, - разбирался браузером как
+#     мусорные атрибуты.
+$h13 = New-ReportCase -MetricRows @( (('5','110200','2','10','200','100','1','20','0','0','1') -join $tabc) ) `
+                      -HintRows   @( (('2','301','новый ключ "Document Type,No." Цена: вставка','High') -join $tabc) )
+$t13 = Get-ChipTitle -Html $h13 -Contains '301'
+Test-Value 'кавычка в подсказке: кавычка экранирована' $true  ($t13.Contains('&quot;'))
+Test-Value 'кавычка в подсказке: хвост совета уцелел'  $true  ($t13.Contains('Цена: вставка'))
+Test-Value 'кавычка в подсказке: сырой кавычки нет'    $false ($h13.Contains('ключ "Document'))
+
+# 14. Находка №5: подсказки на строке ЗАГОЛОВКА функции не попадали в HTML вовсе -
+#     а на неё вешаются самые ценные, измеренные («горячая функция»).
+$h14 = New-ReportCase -MetricRows @( (('5','110200','2','10','200','100','1','20','0','0','1') -join $tabc) ) `
+                      -HintRows   @( (('1','201','горячая функция','High') -join $tabc),
+                                     (('2','101','подсказка тела','High') -join $tabc) )
+Test-Value 'подсказка заголовка: текст в отчёте есть'       $true ($h14.Contains('горячая функция'))
+Test-Value 'подсказка заголовка: подсказка тела на месте'   $true ($h14.Contains('подсказка тела'))
+Test-Value 'подсказка заголовка: счётчик по телу отдельный' $true ($h14.Contains('подсказок внутри функции'))
+
+# 15. Находка №6: без файла метрик колонка подсказок не рисовалась вовсе, хотя
+#     шапка их исправно считала и обещала. Оба параметра необязательны.
+$h15 = New-ReportCase -HintRows @( (('2','101','подсказка без метрик','High') -join $tabc) )
+Test-Value 'подсказки без метрик: отчёт собрался' $true ($h15.Length -gt 0)
+Test-Value 'подсказки без метрик: чип нарисован'  $true ($h15.Contains('class="chip'))
+Test-Value 'подсказки без метрик: текст на месте' $true ($h15.Contains('подсказка без метрик'))
+
+# 16. Находка №7: строка метрик за пределами листинга роняла сборку целиком -
+#     и только если попадала в топ, то есть отчёт то собирался, то нет.
+$h16 = New-ReportCase -MetricRows @( (('5','110200','9999','10','500','500','1','20','0','0','1') -join $tabc),
+                                     (('5','110200','2','10','200','100','1','20','0','0','1')    -join $tabc) )
+Test-Value 'строка вне листинга: отчёт всё равно собрался' $true  ($h16.Length -gt 0)
+Test-Value 'строка вне листинга: в топ не попала'          $false ($h16.Contains('#L9999'))
+
+# ---------------------------------------------------------------------------
+# 17-18. Находки №9 и №10: число в строке заголовка и чужие подсказки
+# ---------------------------------------------------------------------------
+function Get-HtmlRow {
+    <#  Содержимое строки листинга с заданным номером.  #>
+    param([string] $Html, [int] $LineNo)
+    $m = [regex]::Match($Html, ('<tr id="L{0}"[^>]*>(.*?)</tr>' -f $LineNo), 'Singleline')
+    if (-not $m.Success) { return '' }
+    return $m.Groups[1].Value
+}
+
+# 17. Находка №9: Hits строки - сумма попаданий по её ОПЕРАТОРАМ. Строка из двух
+#     операторов давала вдвое больше, и в колонке заголовка выходило «вызовов»
+#     вдвое больше фактических - ничем не помеченных.
+#       строка 2: один оператор,  613 попаданий
+#       строка 3: два оператора, 1226 попаданий (те же 613 вызовов)
+$h17 = New-ReportCase -MetricRows @( (('5','110200','2','613','200','100','1','20','0','0','1')  -join $tabc),
+                                     (('5','110200','3','1226','120','120','1','20','0','0','2') -join $tabc) )
+$row17 = Get-HtmlRow -Html $h17 -LineNo 1
+Test-Value 'заголовок функции: попаданий по одиночным операторам' $true  ($row17.Contains('>613<'))
+Test-Value 'заголовок функции: сумма по операторам не взята'      $false ($row17 -match '1\D?226')
+Test-Value 'заголовок функции: число подписано'                   $true  ($row17.Contains('это не число вызовов функции'))
+
+# 18. Находка №10: номера объектов повторяются между типами, а подсказки
+#     отбирались только по номеру - чужие ложились на строки, где этого кода нет.
+$hdr18 = @('LineNo','Rule','Тип','ID','Message','Severity')
+$h18 = New-ReportCase -HintHeader $hdr18 `
+                      -HintRows @( (('2','101','Codeunit','110200','своя подсказка','High') -join $tabc),
+                                   (('3','102','Table','110200','чужая подсказка','High')   -join $tabc) )
+Test-Value 'чужой тип: своя подсказка на месте' $true  ($h18.Contains('своя подсказка'))
+Test-Value 'чужой тип: чужая отсеяна'           $false ($h18.Contains('чужая подсказка'))
+Test-Value 'чужой тип: в шапке посчитана одна'  $true  ($h18 -match 'подсказок:\s*<b>1</b>')
+
+# ---------------------------------------------------------------------------
 # вердикт
 # ---------------------------------------------------------------------------
 Write-Host ('пройдено {0} из {1}' -f $script:Passed, $script:Total)

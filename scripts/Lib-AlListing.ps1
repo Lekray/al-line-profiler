@@ -226,3 +226,18 @@ function ConvertTo-HtmlText {
     if ($null -eq $Text) { return '' }
     return $Text.Replace('&', '&amp;').Replace('<', '&lt;').Replace('>', '&gt;')
 }
+
+function ConvertTo-HtmlAttr {
+    <#
+    .SYNOPSIS
+        Экранирование текста для вставки в ЗНАЧЕНИЕ атрибута в двойных кавычках.
+
+    .DESCRIPTION
+        Отдельно от ConvertTo-HtmlText, потому что в атрибуте опасна ещё и кавычка:
+        она закрывает значение, и весь хвост текста разбирается браузером как новые
+        атрибуты. В подсказках это не редкость, а норма - советник печатает состав
+        ключа в кавычках, - и рвался ровно самый полезный кусок совета.
+    #>
+    param([string]$Text)
+    return (ConvertTo-HtmlText $Text).Replace('"', '&quot;')
+}

@@ -115,6 +115,7 @@ $funcs   = @(Get-AlFunctionMap -Listing $listing)
 # --- метрики ----------------------------------------------------------------
 $metrics    = @{}      # LineNo -> хэш метрик
 $hasTimings = $false
+$outside    = 0        # строк метрик за пределами листинга
 if ($MetricsFile) {
     if (Test-Path -LiteralPath $MetricsFile) {
         foreach ($r in (Read-Tsv $MetricsFile)) {
@@ -124,6 +125,12 @@ if ($MetricsFile) {
             }
             $ln = [int](Get-Num $r 'LineNo')
             if ($ln -le 0) { continue }
+            # Номер за пределами листинга - это метрики от ДРУГОЙ версии объекта:
+            # файл метрик прошлого прогона либо перекомпиляция между дампом и трассой.
+            # Дальше такая строка либо тихо пропадала, либо роняла сборку целиком
+            # ($listing[$ln - 1].Text на пустом элементе), причём только если попадала
+            # в топ - то есть отчёт то собирался, то нет на одних и тех же данных.
+            if ($ln -gt $listing.Count) { $outside++; continue }
             $metrics[$ln] = @{
                 Hits     = [int](Get-Num $r 'Hits')
                 TotalMs  = Get-Num $r 'TotalMs'
@@ -132,6 +139,9 @@ if ($MetricsFile) {
                 SqlMs    = Get-Num $r 'SqlMs'
                 Stmts    = [int](Get-Num $r 'Stmts')
             }
+        }
+        if ($outside -gt 0) {
+            Write-Warning ("Строк метрик за пределами листинга: {0} (в объекте {1} строк). Похоже, метрики от другой версии объекта - отчёт собран без них." -f $outside, $listing.Count)
         }
         $hasTimings = ($metrics.Count -gt 0)
         if (-not $hasTimings) { Write-Warning "В $MetricsFile нет строк по объекту $ObjectType/$ObjectId." }
@@ -143,10 +153,24 @@ if ($MetricsFile) {
 # --- подсказки --------------------------------------------------------------
 $hints    = @{}        # LineNo -> список подсказок
 $hintsAll = 0
+$hasHints = $false
 if ($HintsFile) {
     if (Test-Path -LiteralPath $HintsFile) {
         foreach ($r in (Read-Tsv $HintsFile)) {
             if ($r.ContainsKey('ID') -and $r['ID'] -match '^\d+$' -and [int]$r['ID'] -ne $ObjectId) { continue }
+            # Номера объектов повторяются между типами: один и тот же код бывает и у
+            # таблицы, и у кодюнита. Отбор ТОЛЬКО по номеру тянул в отчёт чужие
+            # подсказки, и ложились они на строки, где этого кода нет вовсе, - а в
+            # шапке они честно считались. У метрик тип проверяется, здесь не было.
+            # В файле линтера тип записан ИМЕНЕМ, поэтому сверяем и с именем, и с
+            # номером: чужой файл может прийти и с числом.
+            $ht = ''
+            foreach ($k in @('Тип', 'Type', 'ObjectType')) { if ($r.ContainsKey($k) -and $r[$k]) { $ht = [string]$r[$k]; break } }
+            if ($ht) {
+                if ($ht -match '^\d+$') {
+                    if ([int]$ht -ne $ObjectType) { continue }
+                } elseif ($ht -ne (Get-AlTypeName $ObjectType)) { continue }
+            }
             $ln = 0
             foreach ($k in @('Строка', 'LineNo', 'Line')) { if ($r.ContainsKey($k)) { $ln = [int](Get-Num $r $k); break } }
             if ($ln -le 0) { continue }
@@ -160,6 +184,7 @@ if ($HintsFile) {
     } else {
         Write-Warning "Файл подсказок не найден: $HintsFile."
     }
+    $hasHints = ($hints.Count -gt 0)
 }
 
 if (-not $OutFile) {
@@ -191,20 +216,56 @@ function Get-CountableHints {
     return ,@($List | Where-Object { $_.Severity -notmatch 'Info|Инфо' })
 }
 
+function Format-HintChip {
+    <#
+    .SYNOPSIS
+        Чип со счётчиком и полным текстом подсказок строки; пусто, если считать нечего.
+    #>
+    param($List, [string]$Title)
+    $cnt = Get-CountableHints $List
+    if ($cnt.Count -eq 0) { return '' }
+    $sev = 'lo'
+    foreach ($x in $cnt) {
+        if ($x.Severity -match 'Critical|High|Крит|Выс') { $sev = 'hi'; break }
+        if ($x.Severity -match 'Medium|Сред') { $sev = 'md' }
+    }
+    # В подсказке показываем ВСЁ, включая информационные, а считаем только значимые.
+    $tip = (($List | ForEach-Object { ('{0}: {1}' -f $_.Rule, $_.Message) }) -join ' | ')
+    if ($Title) { $tip = $Title + ': ' + $tip }
+    return ('<span class="chip {0}" title="{1}">{2}</span>' -f $sev, (ConvertTo-HtmlAttr $tip), $cnt.Count)
+}
+
 # свёртка по функциям: собственное время, SQL и число подсказок внутри тела
 $fnAgg   = @{}
 $covered = @{}    # номер строки -> функция реально профилировалась
 foreach ($f in $funcs) {
     $s = 0.0; $q = 0.0; $h = 0; $hits = 0; $any = $false
+    $hitsMulti = 0
     for ($ln = $f.FirstLine; $ln -le $f.LastLine; $ln++) {
         if ($metrics.ContainsKey($ln)) {
             $any = $true
             $s += $metrics[$ln].SelfMs; $q += $metrics[$ln].SqlMs
-            if ($metrics[$ln].Hits -gt $hits) { $hits = $metrics[$ln].Hits }
+            # Hits строки - СУММА попаданий по её операторам, а не число её
+            # выполнений: у «IF ... THEN ...;» операторов два. В максимум по телу
+            # такая строка приходила наравне с остальными и удваивала число в
+            # колонке заголовка - причём, в отличие от строк тела, без пояснения.
+            # Берём максимум по ОДНООПЕРАТОРНЫМ строкам; многооператорные идут
+            # запасным вариантом, и тогда об этом сказано в подсказке.
+            if ($metrics[$ln].Stmts -le 1) {
+                if ($metrics[$ln].Hits -gt $hits) { $hits = $metrics[$ln].Hits }
+            } elseif ($metrics[$ln].Hits -gt $hitsMulti) {
+                $hitsMulti = $metrics[$ln].Hits
+            }
         }
         if ($hints.ContainsKey($ln)) { $h += (Get-CountableHints $hints[$ln]).Count }
     }
-    $fnAgg[$f.HeaderLine] = @{ SelfMs = $s; SqlMs = $q; Hints = $h; MaxHits = $hits }
+    # Считается ТЕЛО, без строки заголовка: её собственные подсказки (правила про
+    # горячую функцию и смешанный профиль вешаются именно на неё) показываются
+    # своим чипом рядом. Иначе они попадали бы в счётчик «внутри функции» и текста
+    # своего не имели бы вовсе.
+    $fromMulti = $false
+    if ($hits -eq 0 -and $hitsMulti -gt 0) { $hits = $hitsMulti; $fromMulti = $true }
+    $fnAgg[$f.HeaderLine] = @{ SelfMs = $s; SqlMs = $q; Hints = $h; MaxHits = $hits; HitsFromMulti = $fromMulti }
     # Отметка «не выполнялась» осмысленна только внутри функций, до которых
     # прогон вообще дошёл. В непокрытых функциях она означала бы не то.
     if ($any) {
@@ -397,6 +458,15 @@ foreach ($l in $listing) {
                 $self = Format-Ms $a.SelfMs
                 $sql  = Format-Ms $a.SqlMs
                 $hits = if ($a.MaxHits -gt 0) { '{0:N0}' -f $a.MaxHits } else { '' }
+                if ($a.MaxHits -gt 0) {
+                    # Число подписано всегда: без подписи его читают как «вызовов
+                    # функции», а это наибольшее попадание среди строк тела - у
+                    # функции с циклом внутри оно больше числа вызовов в разы.
+                    $hitsAttr = ' title="наибольшее число попаданий среди строк тела; это не число вызовов функции"'
+                    if ($a.HitsFromMulti) {
+                        $hitsAttr = ' title="наибольшее число попаданий среди строк тела; посчитано по строке с несколькими операторами, там показана сумма по ним"'
+                    }
+                }
             }
         }
         elseif ($metrics.ContainsKey($l.LineNo)) {
@@ -420,26 +490,28 @@ foreach ($l in $listing) {
         }
         $cells += ('<td class="m self{0}">{1}</td><td class="m">{2}</td><td class="m"{3}>{4}</td><td class="m">{5}</td>' -f `
             $heat, $self, $tot, $hitsAttr, $hits, $sql)
+    }
 
-        # колонка подсказок
+    # Колонка подсказок - СВОИМ условием, а не внутри метрик: без файла метрик она
+    # не рисовалась вовсе, хотя шапка подсказки исправно считала и обещала. Оба
+    # параметра необязательны, и прогон только с подсказками - штатный.
+    if ($hasHints) {
         $hc = ''
         if ($l.Kind -eq 'Function') {
+            # У строки заголовка бывают И свои подсказки, И подсказки внутри тела -
+            # показываем оба чипа. Прежде свой текст терялся: ветка заголовка знала
+            # только счётчик по телу, а до общей ветки дело не доходило.
+            $own = ''
+            if ($hints.ContainsKey($l.LineNo)) { $own = Format-HintChip $hints[$l.LineNo] }
+            $inner = ''
             $a = $fnAgg[$l.LineNo]
-            if ($a -and $a.Hints -gt 0) { $hc = ('<span class="chip lo" title="подсказок внутри функции">{0}</span>' -f $a.Hints) }
+            if ($a -and $a.Hints -gt 0) {
+                $inner = ('<span class="chip lo" title="подсказок внутри функции">{0}</span>' -f $a.Hints)
+            }
+            $hc = (@($own, $inner) | Where-Object { $_ }) -join ' '
         }
         elseif ($hints.ContainsKey($l.LineNo)) {
-            $hl  = $hints[$l.LineNo]
-            $cnt = Get-CountableHints $hl
-            if ($cnt.Count -gt 0) {
-                $sev = 'lo'
-                foreach ($x in $cnt) {
-                    if ($x.Severity -match 'Critical|High|Крит|Выс') { $sev = 'hi'; break }
-                    if ($x.Severity -match 'Medium|Сред') { $sev = 'md' }
-                }
-                # в подсказке показываем всё, включая информационные
-                $tip = (($hl | ForEach-Object { ('{0}: {1}' -f $_.Rule, $_.Message) }) -join ' | ')
-                $hc = ('<span class="chip {0}" title="{1}">{2}</span>' -f $sev, (ConvertTo-HtmlText $tip), $cnt.Count)
-            }
+            $hc = Format-HintChip $hints[$l.LineNo]
         }
         $cells += ('<td class="m">{0}</td>' -f $hc)
     }
