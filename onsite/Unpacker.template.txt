@@ -1,0 +1,169 @@
+OBJECT Codeunit 110207 AL Profiler Package Unpacker
+{
+  OBJECT-PROPERTIES
+  {
+    Date=18.08.26;
+    Time=12:00:00;
+    Modified=Yes;
+    Version List=ALProfiler;
+  }
+  PROPERTIES
+  {
+    OnRun=BEGIN
+            Unpack;
+          END;
+
+  }
+  CODE
+  {
+    VAR
+      PickTitleTxt@1000000000 : TextConst 'ENU=Pick part %1 of the package - press Cancel when there are no more';
+      TxtFilterTxt@1000000001 : TextConst 'ENU=Text files (*.txt)|*.txt|All files (*.*)|*.*';
+      SaveTitleTxt@1000000002 : TextConst 'ENU=Save the package archive';
+      ZipFilterTxt@1000000003 : TextConst 'ENU=Archive (*.zip)|*.zip';
+      NoPartsErr@1000000004 : TextConst 'ENU=No parts were picked, so there is nothing to build.';
+      NotAZipErr@1000000005 : TextConst 'ENU=The picked files do not add up to an archive (%1 characters of payload). Check that these really are the package parts.';
+      SavedMsg@1000000006 : TextConst 'ENU=Parts read: %1\Archive: %2 bytes\\Saved on this machine under the name you chose. Unzip it yourself - nothing else was done, and nothing was left on the server.';
+      NotSavedMsg@1000000007 : TextConst 'ENU=Parts read: %1\Archive: %2 bytes\\The save dialog was cancelled, so the archive stayed on the server:\%3\\Nothing was deleted. Run the codeunit again and pick the same parts to get another save dialog.';
+
+    LOCAL PROCEDURE Unpack@1();
+    VAR
+      Payload@1000000000 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      Convert@1000000001 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Convert";
+      FileIo@1000000002 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.File";
+      ServerName@1000000003 : Text;
+      ClientName@1000000004 : Text;
+      ZipPath@1000000005 : Text;
+      Parts@1000000006 : Integer;
+      Index@1000000007 : Integer;
+      ZipSize@1000000008 : Integer;
+      Picking@1000000009 : Boolean;
+      Saved@1000000010 : Boolean;
+    BEGIN
+      // One job only: turn the mailed parts back into the archive and hand it over.
+      // No unzipping, no copying anywhere, no checks tied to a particular mailing - so
+      // that it works with any set of parts and cannot half-do the job.
+      Payload := Payload.StringBuilder;
+
+      IF GUIALLOWED THEN BEGIN
+        Picking := TRUE;
+        FOR Index := 1 TO 60 DO
+          IF Picking THEN BEGIN
+            ServerName := '';
+            IF NOT UPLOAD(STRSUBSTNO(PickTitleTxt,Index),'',TxtFilterTxt,'',ServerName) THEN
+              Picking := FALSE;
+            // An empty name counts as Cancel as well: a client that reports success and
+            // hands back nothing would otherwise keep the asking going for ever.
+            IF Picking AND (ServerName = '') THEN
+              Picking := FALSE;
+            IF Picking THEN BEGIN
+              Parts := Parts + 1;
+              ReadPart(ServerName,Payload);
+              ERASE(ServerName);
+            END;
+          END;
+      END ELSE
+        // No client, no dialogs. Reading a folder keeps the whole chain testable
+        // without a person clicking through it.
+        Parts := ReadFolder(Payload);
+
+      IF Parts = 0 THEN
+        ERROR(NoPartsErr);
+
+      // The only check left, and it costs nothing: an archive always starts with the
+      // bytes PK, which in base64 is UEsD. Sizes are deliberately NOT checked - that
+      // tied the object to one mailing and broke it on every other.
+      IF COPYSTR(Payload.ToString,1,4) <> 'UEsD' THEN
+        ERROR(NotAZipErr,Payload.Length);
+
+      ZipPath := TEMPORARYPATH + 'LineProfilerPackage.zip';
+      FileIo.WriteAllBytes(ZipPath,Convert.FromBase64String(Payload.ToString));
+      ZipSize := SizeOf(ZipPath);
+
+      IF NOT GUIALLOWED THEN
+        EXIT;
+
+      ClientName := 'LineProfilerPackage.zip';
+      Saved := DOWNLOAD(ZipPath,SaveTitleTxt,'',ZipFilterTxt,ClientName);
+      IF Saved THEN BEGIN
+        // Server temp is cleared only once the file is really in the user's hands.
+        ERASE(ZipPath);
+        MESSAGE(SavedMsg,Parts,ZipSize);
+      END ELSE
+        MESSAGE(NotSavedMsg,Parts,ZipSize,ZipPath);
+    END;
+
+    LOCAL PROCEDURE ReadPart@2(Name@1000000000 : Text;VAR Payload@1000000001 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder");
+    VAR
+      PartFile@1000000002 : File;
+      Ins@1000000003 : InStream;
+      Line@1000000004 : Text;
+      Mark@1000000005 : Text;
+    BEGIN
+      // Payload lines carry a mark in front. Everything else - the human header of the
+      // mail - is dropped by that one test, whatever the mail client did to it.
+      // BOTH marks are taken: the earlier mailing used a single stream, a later one
+      // split the assembly off into a second, and the object must work with either.
+      PartFile.TEXTMODE(TRUE);
+      PartFile.OPEN(Name);
+      PartFile.CREATEINSTREAM(Ins);
+      WHILE NOT Ins.EOS DO BEGIN
+        Ins.READTEXT(Line);
+        Mark := COPYSTR(Line,1,1);
+        IF (Mark = '|') OR (Mark = '!') THEN
+          Payload.Append(COPYSTR(Line,2));
+      END;
+      PartFile.CLOSE;
+    END;
+
+    LOCAL PROCEDURE ReadFolder@3(VAR Payload@1000000000 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder") : Integer;
+    VAR
+      Candidate@1000000001 : ARRAY [4] OF Text;
+      Folder@1000000002 : Text;
+      Name@1000000003 : Text;
+      Num@1000000004 : Text;
+      Index@1000000005 : Integer;
+      Parts@1000000006 : Integer;
+    BEGIN
+      Candidate[1] := 'C:\LineProfiler';
+      Candidate[2] := 'C:\Temp\LineProfiler';
+      Candidate[3] := 'C:\ProgramData\LineProfiler';
+      Candidate[4] := 'C:\Temp';
+      FOR Index := 1 TO 4 DO
+        IF (Folder = '') AND EXISTS(Candidate[Index] + '\part01.txt') THEN
+          Folder := Candidate[Index];
+      IF Folder = '' THEN
+        EXIT(0);
+      FOR Index := 1 TO 60 DO BEGIN
+        Num := FORMAT(Index);
+        IF STRLEN(Num) = 1 THEN
+          Num := '0' + Num;
+        Name := Folder + '\part' + Num + '.txt';
+        IF EXISTS(Name) THEN BEGIN
+          Parts := Parts + 1;
+          ReadPart(Name,Payload);
+        END;
+      END;
+      EXIT(Parts);
+    END;
+
+    LOCAL PROCEDURE SizeOf@4(Name@1000000000 : Text) : Integer;
+    VAR
+      Probe@1000000001 : File;
+      Size@1000000002 : Integer;
+    BEGIN
+      Probe.TEXTMODE(FALSE);
+      Probe.OPEN(Name);
+      Size := Probe.LEN;
+      Probe.CLOSE;
+      EXIT(Size);
+    END;
+
+    BEGIN
+    {
+      DD 18.08.2026 LineProfiler Created: rebuilds the mailed parts into the package archive and hands it to the client. Nothing else.
+      Plain ASCII on purpose - the object travels as a mail body, and any encoding must do.
+    }
+    END.
+  }
+}

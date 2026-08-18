@@ -1,0 +1,5 @@
+a0186f38ff5709ed02900110f4ca6d1c019d450e09ea4d73dc3df6fd32c27eba *AlLineProfiler.dll
+7cb01fa58d307eabdaa6294abaf25fae2d49658b8cd19c8c0872c8540c6ca31e *variants/AlLineProfiler-TraceEvent-1.0.11.dll
+78a5332628a1cf8e8fc2b595c6353e081bf3607808e1b809b9f822ebd0b33d56 *variants/AlLineProfiler-TraceEvent-1.0.26.dll
+a0186f38ff5709ed02900110f4ca6d1c019d450e09ea4d73dc3df6fd32c27eba *variants/AlLineProfiler-TraceEvent-1.0.39.dll
+3c3ee9567a7fcf2a55be75dc01dd6ab43f3a32b42b5874642f32f22a233fb5e7 *variants/AlLineProfiler-TraceEvent-2.0.64.dll

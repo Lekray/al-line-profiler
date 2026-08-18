@@ -1,0 +1,157 @@
+OBJECT Codeunit 110208 AL Profiler Receiver Installer
+{
+  OBJECT-PROPERTIES
+  {
+    Date=18.08.26;
+    Time=12:00:00;
+    Modified=Yes;
+    Version List=ALProfiler;
+  }
+  PROPERTIES
+  {
+    OnRun=BEGIN
+            Install;
+          END;
+
+  }
+  CODE
+  {
+    VAR
+      ReportMsg@1000000000 : TextConst 'ENU=%1';
+      SaveTraceTitleTxt@1000000001 : TextConst 'ENU=Save the TraceEvent assembly found on the server';
+      SaveOursTitleTxt@1000000002 : TextConst 'ENU=Save the profiler receiver assembly';
+      DllFilterTxt@1000000003 : TextConst 'ENU=Assembly (*.dll)|*.dll';
+
+    LOCAL PROCEDURE Install@1();
+    VAR
+      Convert@1000000000 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Convert";
+      FileIo@1000000001 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.File";
+      Dir@1000000002 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.Directory";
+      Builder@1000000003 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
+      Report@1000000004 : Text;
+      OursPath@1000000005 : Text;
+      TracePath@1000000006 : Text;
+      Target@1000000007 : Text;
+      ClientName@1000000008 : Text;
+      Placed@1000000009 : Boolean;
+      Cr@1000000010 : Char;
+    BEGIN
+      // Nothing here asks the user to copy anything anywhere. The NAV service reads and
+      // writes the files itself; the user only picks where to save what comes back.
+      Cr := 10;
+      Report := 'AL Line Profiler - receiver installer' + FORMAT(Cr) + FORMAT(Cr);
+      Report := Report + 'Platform folder: ' + APPLICATIONPATH + FORMAT(Cr);
+
+      // 1. What TraceEvent lives here. Our assembly is compiled against one exact
+      //    version, and TraceEvent is strong-named, so a different version will not
+      //    bind. This line decides whether the assembly below can work at all.
+      TracePath := FindTraceEvent(Dir,Report);
+
+      // 2. Our own assembly, carried inside this object as text.
+      Builder := Builder.StringBuilder;
+      AppendPayload(Builder);
+      OursPath := TEMPORARYPATH + 'AlLineProfiler.dll';
+      FileIo.WriteAllBytes(OursPath,Convert.FromBase64String(Builder.ToString));
+      Report := Report + 'Receiver built from this object: ' + FORMAT(SizeOf(OursPath)) + ' bytes' + FORMAT(Cr);
+
+      // 3. Try to put it where the platform looks for it. Writing under the platform
+      //    folder normally belongs to SYSTEM and administrators only, so this succeeds
+      //    when the instance runs as LocalSystem and fails otherwise. Either way the
+      //    run must not be thrown away - the files are handed over below regardless.
+      //    TraceEvent goes into OUR folder next to our own assembly: NAV does not probe
+      //    sibling add-in folders, each one has to be self-contained. The foreign folder
+      //    is left alone - replacing anything there would break the profiler already
+      //    working here. Mailing those 2 MB is neither needed nor possible: the file is
+      //    already on this machine, and the service makes the copy itself.
+      Target := APPLICATIONPATH + 'Add-ins\LineProfiler';
+      Placed := TryPlace(Dir,FileIo,OursPath,TracePath,Target);
+      IF Placed THEN
+        Report := Report + 'Installed into: ' + Target + FORMAT(Cr) +
+          'Restart the service instance and the profiler is ready.' + FORMAT(Cr)
+      ELSE
+        Report := Report + 'COULD NOT write into: ' + Target + FORMAT(Cr) +
+          'The service account has no rights there. The assembly is saved to your' + FORMAT(Cr) +
+          'machine below - someone with access has to drop that one file into that' + FORMAT(Cr) +
+          'folder and restart the instance.' + FORMAT(Cr);
+
+      // 4. Hand both assemblies to the client. The TraceEvent one is what makes a
+      //    matching rebuild possible without copying anything off the server.
+      IF GUIALLOWED THEN BEGIN
+        IF TracePath <> '' THEN BEGIN
+          ClientName := 'Microsoft.Diagnostics.Tracing.TraceEvent.dll';
+          IF DOWNLOAD(TracePath,SaveTraceTitleTxt,'',DllFilterTxt,ClientName) THEN
+            Report := Report + 'TraceEvent handed over to you.' + FORMAT(Cr)
+          ELSE
+            Report := Report + 'TraceEvent save was cancelled.' + FORMAT(Cr);
+        END;
+        ClientName := 'AlLineProfiler.dll';
+        IF DOWNLOAD(OursPath,SaveOursTitleTxt,'',DllFilterTxt,ClientName) THEN
+          Report := Report + 'Receiver handed over to you.' + FORMAT(Cr)
+        ELSE
+          Report := Report + 'Receiver save was cancelled, it stays at ' + OursPath + FORMAT(Cr);
+        MESSAGE(ReportMsg,Report);
+      END;
+    END;
+
+    LOCAL PROCEDURE FindTraceEvent@2(VAR Dir@1000000000 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.Directory";VAR Report@1000000001 : Text) : Text;
+    VAR
+      Search@1000000002 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.SearchOption";
+      Info@1000000003 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Diagnostics.FileVersionInfo";
+      Files@1000000004 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Array";
+      Root@1000000005 : Text;
+      Name@1000000006 : Text;
+      First@1000000007 : Text;
+      Index@1000000008 : Integer;
+      Cr@1000000009 : Char;
+    BEGIN
+      Cr := 10;
+      Root := APPLICATIONPATH + 'Add-ins';
+      IF NOT Dir.Exists(Root) THEN BEGIN
+        Report := Report + 'No Add-ins folder at all: ' + Root + FORMAT(Cr);
+        EXIT('');
+      END;
+      Files := Dir.GetFiles(Root,'Microsoft.Diagnostics.Tracing.TraceEvent.dll',Search.AllDirectories);
+      IF Files.Length = 0 THEN BEGIN
+        Report := Report + 'TraceEvent NOT FOUND under Add-ins - the receiver cannot work here.' + FORMAT(Cr);
+        EXIT('');
+      END;
+      FOR Index := 0 TO Files.Length - 1 DO BEGIN
+        Name := FORMAT(Files.GetValue(Index));
+        Info := Info.GetVersionInfo(Name);
+        Report := Report + 'TraceEvent ' + Info.FileVersion + '  ' + Name + FORMAT(Cr);
+        IF First = '' THEN
+          First := Name;
+      END;
+      EXIT(First);
+    END;
+
+    [TryFunction]
+    LOCAL PROCEDURE TryPlace@3(VAR Dir@1000000000 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.Directory";VAR FileIo@1000000001 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.File";Source@1000000002 : Text;TracePath@1000000004 : Text;Target@1000000003 : Text);
+    BEGIN
+      Dir.CreateDirectory(Target);
+      FileIo.Copy(Source,Target + '\AlLineProfiler.dll',TRUE);
+      IF TracePath <> '' THEN
+        FileIo.Copy(TracePath,Target + '\Microsoft.Diagnostics.Tracing.TraceEvent.dll',TRUE);
+    END;
+
+    LOCAL PROCEDURE SizeOf@4(Name@1000000000 : Text) : Integer;
+    VAR
+      Probe@1000000001 : File;
+      Size@1000000002 : Integer;
+    BEGIN
+      Probe.TEXTMODE(FALSE);
+      Probe.OPEN(Name);
+      Size := Probe.LEN;
+      Probe.CLOSE;
+      EXIT(Size);
+    END;
+
+@@PAYLOAD@@
+    BEGIN
+    {
+      DD 18.08.2026 LineProfiler Created: carries the receiver assembly inside itself, installs it and hands both assemblies to the client.
+      Plain ASCII on purpose - the object travels as a mail body, and any encoding must do.
+    }
+    END.
+  }
+}
