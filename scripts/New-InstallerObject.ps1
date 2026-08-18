@@ -25,13 +25,20 @@ $ErrorActionPreference = 'Stop'
 
 $taskDir = Split-Path $PSScriptRoot -Parent
 $tpl     = Join-Path $taskDir 'onsite\Installer.template.txt'
-$dll     = Join-Path $taskDir 'bin\AlLineProfiler.dll'
+# Берём ОПУБЛИКОВАННУЮ сборку из dist, а не свежую из bin: именно по dist согласована
+# установка и посчитаны контрольные суммы, и в почтовый объект должно попасть ровно то,
+# что названо в согласовании. Так же поступают оба сборщика пакетов.
+$dll     = Join-Path $taskDir 'dist\AlLineProfiler.dll'
 if (-not $OutDir) { $OutDir = Join-Path $taskDir 'out' }
 
 function Step([string]$m) { Write-Host "  $m" }
 Write-Host 'Установщик приёмника одним объектом' -ForegroundColor Cyan
 
 foreach ($p in @($tpl, $dll)) { if (-not (Test-Path $p)) { throw "не найдено: $p" } }
+$bin = Join-Path $taskDir 'bin\AlLineProfiler.dll'
+if ((Test-Path $bin) -and ((Get-FileHash $bin).Hash -ne (Get-FileHash $dll).Hash)) {
+    throw "bin\AlLineProfiler.dll отличается от dist\AlLineProfiler.dll. В объект идёт dist. Обновите dist и пересчитайте dist\SHA256SUMS.txt либо удалите bin."
+}
 
 $bytes = [IO.File]::ReadAllBytes($dll)
 $b64   = [Convert]::ToBase64String($bytes)

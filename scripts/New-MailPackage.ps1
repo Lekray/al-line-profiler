@@ -5,12 +5,12 @@
 
 .DESCRIPTION
     Почтовый фильтр контура удаляет вложения, поэтому пакет едет текстом: base64
-    строками по 76 знаков, которые переживают любой перенос строк в почтовом клиенте.
+    строками по 64 знака, которые переживают любой перенос строк в почтовом клиенте.
 
-    Двоичного в пакете нет вовсе: собранная сборка приёмника НЕ кладётся - её всё равно
-    полагается пересобирать на месте (шаг 3), ссылкой на ТУ TraceEvent.dll, что лежит
-    там. Исходник в UTF-8 тоже не кладётся: для импорта нужен cp866, а править объекты
-    на месте удобнее уже в C/SIDE.
+    Поток РОВНО ОДИН - архив, внутри которого лежит и сборка приёмника. Вторым потоком
+    её везти нельзя: два документа base64 подряд - это уже не один документ base64.
+    Исходник в UTF-8 не кладётся: для импорта нужен cp866, а править объекты на месте
+    удобнее уже в C/SIDE.
 
     На выходе - и один файл целиком, и он же нарезанный на части: если тело письма
     целиком не пройдёт, части уходят по отдельности и собираются в любом порядке.
@@ -48,11 +48,20 @@ Copy-Item (Join-Path $onsiteDir '*.ps1') $stage
 Copy-Item (Join-Path $onsiteDir 'README.md') $stage
 Copy-Item $cp866 (Join-Path $stage 'objects')
 Copy-Item (Join-Path $taskDir 'src\AlLineProfiler.cs') (Join-Path $stage 'receiver')
-# Сборка вернулась в пакет. Она нужна на РАБОЧЕЙ СТАНЦИИ: положить её на сервер сможет
-# либо установщик из C/AL (если у учётки службы есть права на Add-ins), либо человек с
-# доступом к серверу - но в обоих случаях файл сперва должен доехать сюда.
-$dll = Join-Path $taskDir 'bin\AlLineProfiler.dll'
-if (-not (Test-Path $dll)) { throw "нет сборки приёмника: $dll (запустить Deploy-LineProfiler.ps1)" }
+# Сборка едет ВНУТРИ архива, рядом с исходником. Она нужна на РАБОЧЕЙ СТАНЦИИ: положить
+# её на сервер сможет либо установщик из C/AL (если у учётки службы есть права на
+# Add-ins), либо человек с доступом к серверу - но в обоих случаях файл сперва должен
+# доехать сюда.
+#
+# Берём ОПУБЛИКОВАННУЮ сборку из dist, а не свежую из bin: именно по dist согласована
+# установка и посчитаны контрольные суммы. Так же поступает и New-OnsitePackage.ps1.
+$dll = Join-Path $taskDir 'dist\AlLineProfiler.dll'
+if (-not (Test-Path $dll)) { throw "нет опубликованной сборки: $dll" }
+$bin = Join-Path $taskDir 'bin\AlLineProfiler.dll'
+if ((Test-Path $bin) -and ((Get-FileHash $bin).Hash -ne (Get-FileHash $dll).Hash)) {
+    throw "bin\AlLineProfiler.dll отличается от dist\AlLineProfiler.dll. В пакет идёт dist. Обновите dist и пересчитайте dist\SHA256SUMS.txt либо удалите bin."
+}
+Copy-Item $dll (Join-Path $stage 'receiver')
 
 $zip = Join-Path $env:TEMP 'lineprofiler-mail.zip'
 if (Test-Path $zip) { Remove-Item $zip -Force }
@@ -61,18 +70,18 @@ Remove-Item $stage -Recurse -Force
 
 $bytes = [IO.File]::ReadAllBytes($zip)
 $hash  = (Get-FileHash $zip -Algorithm SHA256).Hash
-# Сборка приёмника идёт ОТДЕЛЬНЫМ потоком под своей меткой, а не внутри архива:
-# распаковщику на C/AL тогда не нужен разбор ZIP - одной зависимостью меньше, - и
-# каждый файл сразу оказывается тем, чем должен быть.
-$dllBytes = [IO.File]::ReadAllBytes($dll)
+# Поток один, и это не вкусовщина. Второй поток под своей меткой тут был и оказался
+# ловушкой сразу с двух сторон: сборщик из шапки письма забирал только первую метку и
+# сборку терял вовсе, а распаковщик на C/AL складывал ОБЕ метки в один буфер - выходил
+# либо отказ на дополнении base64 (два размера архива из трёх), либо архив с приклеенным
+# к нему хвостом. Проверено обратной сборкой на настоящих частях.
 # Строки по 64 знака плюс метка - итого 65: заведомо короче даже 72, на которых
 # переносит формат format=flowed. Перенос строки посреди нагрузки терял бы её молча:
 # продолжение уехало бы на строку без метки, а такую строку отбор выбрасывает.
 # Отбор ПО МЕТКЕ, а не по длине: у последней строки каждой части длина своя, и отбор
 # по длине выбрасывал её - проверено обратной сборкой, сумма не сошлась.
-$flat    = [Convert]::ToBase64String($bytes)
-$flatDll = [Convert]::ToBase64String($dllBytes)
-Step ("архив $([math]::Round($bytes.Length/1KB)) КБ + сборка $([math]::Round($dllBytes.Length/1KB)) КБ -> текст $([math]::Round(($flat.Length+$flatDll.Length)/1KB)) КБ")
+$flat = [Convert]::ToBase64String($bytes)
+Step ("архив $([math]::Round($bytes.Length/1KB)) КБ (со сборкой внутри) -> текст $([math]::Round($flat.Length/1KB)) КБ")
 
 $commit = (& git -C $taskDir rev-parse --short HEAD 2>$null)
 $stamp  = (Get-Date -Format 'yyyy-MM-dd HH:mm')
@@ -104,10 +113,11 @@ function New-Header {
         $h += '  Объекты C/SIDE импортирует из файла на ВАШЕЙ машине, поэтому доступ к диску'
         $h += '  сервера для них не нужен вовсе. На сервер обязана попасть ровно одна вещь -'
         $h += '  сборка приёмника receiver\AlLineProfiler.dll в каталог службы Add-ins.'
+        $h += '  Она уже внутри архива - отдельно её раскодировать и собирать не нужно.'
         $h += ''
         $h += 'ЕСЛИ POWERSHELL НЕТ И НА РАБОЧЕЙ СТАНЦИИ'
         $h += '  Разбор base64 умеет штатный certutil, он есть в любой Windows:'
-        $h += '     copy /b part01.txt+part02.txt+part03.txt+part04.txt+part05.txt all.txt'
+        $h += ('     copy /b ' + ((1..$Of | ForEach-Object { 'part{0:d2}.txt' -f $_ }) -join '+') + ' all.txt')
         $h += '     findstr /b "|" all.txt > marked.txt'
         $h += '     (убрать первый знак каждой строки любым редактором - это и есть base64)'
         $h += '     certutil -decode payload.b64 pkg.zip'
@@ -124,18 +134,19 @@ function New-Header {
 
 if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Path $OutDir | Out-Null }
 if (-not $UnpackerOnly) {
-    Get-ChildItem $OutDir -Filter 'LineProfiler-mail-[0-9][0-9].txt' -ErrorAction SilentlyContinue | Remove-Item -Force
+    # Через -Filter нельзя: он уходит в файловый API Windows, а тот знает только * и ?
+    # - набор [0-9] там не работает вовсе, и части прошлой рассылки оставались лежать.
+    # Лишняя часть, подобранная сборщиком вместе с новыми, ломает сборку молча.
+    Get-ChildItem (Join-Path $OutDir 'LineProfiler-mail-[0-9][0-9].txt') -ErrorAction SilentlyContinue | Remove-Item -Force
 }
 
-# Сперва собираем ВСЕ строки нагрузки обоих потоков, потом режем по строкам: так ни
-# одна строка не разрывается на границе части, а метка позволяет собирать в любом порядке.
+# Сперва собираем ВСЕ строки нагрузки, потом режем по строкам: так ни одна строка не
+# разрывается на границе части, а метка позволяет собирать части в любом порядке.
 $payload = New-Object System.Collections.Generic.List[string]
 for ($j = 0; $j -lt $flat.Length; $j += 64) {
     $payload.Add('|' + $flat.Substring($j, [math]::Min(64, $flat.Length - $j)))
 }
-for ($j = 0; $j -lt $flatDll.Length; $j += 64) {
-    $payload.Add('!' + $flatDll.Substring($j, [math]::Min(64, $flatDll.Length - $j)))
-}
+
 $perPart = [math]::Floor($PartChars / 64)
 $total = [math]::Ceiling($payload.Count / $perPart)
 $made = @()
@@ -184,15 +195,14 @@ $bootLines = @(
     '  2. C/SIDE -> File -> Import -> unpacker.txt, скомпилировать Codeunit 110207.',
     '  3. Части 1..N сохранить НА СЕРВЕРЕ NAV как C:\LineProfiler\part01.txt и далее.',
     '  4. Object Designer -> Codeunit 110207 -> Run. Он сверит размер и покажет итог.',
-    '  5. Объект сохранит на ВАШУ машину два файла - имена ровно такие:',
-    '        LineProfilerPackage.zip   (архив пакета)',
-    '        AlLineProfiler.dll        (сборка приёмника)',
-    '     Запомните каталог, который выберете в диалоге сохранения.',
+    '  5. Объект сохранит на ВАШУ машину один файл - LineProfilerPackage.zip.',
+    '     Сборка приёмника лежит внутри него, в каталоге receiver.',
     '  6. Распаковать LineProfilerPackage.zip Проводником, дальше по README.md.',
     '  7. Codeunit 110207 после этого можно удалить.',
     '',
-    ('Ожидаемый размер архива: ' + $bytes.Length + ' байт. Не сойдётся - объект скажет'),
-    'об этом ошибкой, и пакетом пользоваться нельзя: какая-то часть пришла обрезанной.',
+    ('Ожидаемый размер архива: ' + $bytes.Length + ' байт; свой объект покажет в конце.'),
+    'Не сошлось - какая-то часть пришла обрезанной, и пакетом пользоваться нельзя.',
+    'Размер объект намеренно не сверяет сам: это привязало бы его к одной рассылке.',
     '',
     'Файлы частей лежат на СЕРВЕРЕ: работа с файлами из C/AL идёт на стороне службы.',
     'Каталог ищется сам среди C:\LineProfiler, C:\Temp\LineProfiler,',

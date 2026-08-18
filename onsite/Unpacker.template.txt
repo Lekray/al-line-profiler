@@ -25,6 +25,7 @@ OBJECT Codeunit 110207 AL Profiler Package Unpacker
       NotAZipErr@1000000005 : TextConst 'ENU=The picked files do not add up to an archive (%1 characters of payload). Check that these really are the package parts.';
       SavedMsg@1000000006 : TextConst 'ENU=Parts read: %1\Archive: %2 bytes\\Saved on this machine under the name you chose. Unzip it yourself - nothing else was done, and nothing was left on the server.';
       NotSavedMsg@1000000007 : TextConst 'ENU=Parts read: %1\Archive: %2 bytes\\The save dialog was cancelled, so the archive stayed on the server:\%3\\Nothing was deleted. Run the codeunit again and pick the same parts to get another save dialog.';
+      TwoStreamsErr@1000000008 : TextConst 'ENU=%1 carries a second payload stream, which this object cannot put back together. Ask for the mailing to be built again by the current packer - it sends one stream only.';
 
     LOCAL PROCEDURE Unpack@1();
     VAR
@@ -102,16 +103,23 @@ OBJECT Codeunit 110207 AL Profiler Package Unpacker
     BEGIN
       // Payload lines carry a mark in front. Everything else - the human header of the
       // mail - is dropped by that one test, whatever the mail client did to it.
-      // BOTH marks are taken: the earlier mailing used a single stream, a later one
-      // split the assembly off into a second, and the object must work with either.
+      //
+      // ONE mark only, and the other one is refused outright. A mailing once carried the
+      // receiver assembly as a second stream under its own mark, and taking both marks
+      // appended two separate base64 documents into one buffer. Two archive sizes out of
+      // three then failed to decode at all; the third decoded into the archive with the
+      // assembly stuck to its tail, and said nothing about it. Better to stop and ask
+      // for the mailing to be rebuilt than to hand over something that looks right.
       PartFile.TEXTMODE(TRUE);
       PartFile.OPEN(Name);
       PartFile.CREATEINSTREAM(Ins);
       WHILE NOT Ins.EOS DO BEGIN
         Ins.READTEXT(Line);
         Mark := COPYSTR(Line,1,1);
-        IF (Mark = '|') OR (Mark = '!') THEN
+        IF Mark = '|' THEN
           Payload.Append(COPYSTR(Line,2));
+        IF Mark = '!' THEN
+          ERROR(TwoStreamsErr,Name);
       END;
       PartFile.CLOSE;
     END;
@@ -162,6 +170,7 @@ OBJECT Codeunit 110207 AL Profiler Package Unpacker
     BEGIN
     {
       DD 18.08.2026 LineProfiler Created: rebuilds the mailed parts into the package archive and hands it to the client. Nothing else.
+      DD 18.08.2026 LineProfiler One payload mark only; a part carrying the second one is refused instead of being glued on.
       Plain ASCII on purpose - the object travels as a mail body, and any encoding must do.
     }
     END.
