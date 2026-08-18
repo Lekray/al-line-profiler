@@ -16,7 +16,9 @@
     Саму TraceEvent пакет НЕ везёт: её версии до 2.0.30 лицензия Microsoft
     распространять не разрешает, да это и не нужно - библиотека уже здесь.
     Установка копирует её РЯДОМ с приёмником: NAV не просматривает соседние
-    папки надстроек, каждая обязана быть самодостаточной.
+    папки надстроек, каждая обязана быть самодостаточной. Вместе с библиотекой
+    едет и вся её цепочка: 1.x самодостаточна, а 2.x разложена по отдельным
+    файлам, и без них приёмник не поднимается - молча, без записи в журнале.
 
     Чужую сборку (EtwPerformanceProfiler) НЕ трогает: своя ложится в свою подпапку.
     Прежняя своя сборка сохраняется рядом и возвращается при неудаче.
@@ -37,9 +39,41 @@ $dll = Join-Path $outDir 'AlLineProfiler.dll'
 $dlls = @(Get-TraceEventDlls -Ctx $ctx)
 if ($dlls.Count -eq 0) { Bad 'TraceEvent.dll на сервере не найдена - работать не с чем (см. шаг 1)'; return }
 foreach ($d in $dlls) { Line 'TraceEvent' ('{0,-10} {1}' -f $d.Version, $d.Path) }
-$te = $dlls[0]
 
-# Сравниваем три первые части: FileVersionInfo даёт «1.0.39.0», в имени файла «1.0.39».
+# Берём не просто СТАРШУЮ, а первую САМОДОСТАТОЧНУЮ - и лишь при равенстве старшую.
+# Ссылка при сборке идёт на одну библиотеку, а поднимется приёмник только если рядом
+# окажется вся её цепочка. У 1.x цепочки нет вовсе, у 2.x она разложена по отдельным
+# файлам (FastSerialization и ещё несколько). Прежний отбор по старшинству уводил нас
+# в 2.x чужого профайлера - каталог выходил неполным, и это не всплывало до первого
+# замера: csc собирает по одной ссылке и об остальных сборках не спрашивает.
+$te      = $null
+$teNeeds = @()
+foreach ($d in $dlls) {
+    $n = @(Get-AssemblyNeeds -Path $d.Path)
+    if (@($n | Where-Object { -not $_.Found }).Count -eq 0) { $te = $d; $teNeeds = $n; break }
+}
+if ($null -eq $te) {
+    $te      = $dlls[0]
+    $teNeeds = @(Get-AssemblyNeeds -Path $te.Path)
+}
+$teBring   = @($teNeeds | Where-Object { $_.Found })
+$teMissing = @($teNeeds | Where-Object { -not $_.Found })
+
+Line 'Выбрана' ('{0}  {1}' -f $te.Version, $te.Path)
+if ($teNeeds.Count -eq 0) {
+    Line 'Зависимости' 'нет - библиотека самодостаточна'
+} else {
+    Line 'Зависимости' (($teBring | ForEach-Object { $_.Name }) -join ', ')
+    foreach ($m in $teMissing) {
+        Bad "зависимость $($m.Name) $($m.Version) рядом с TraceEvent не лежит"
+    }
+    if ($teMissing.Count) {
+        Bad 'каталог надстройки выйдет неполным: соседние папки платформа не просматривает'
+        Bad 'дальше идём, но если приёмник промолчит на замере - причина здесь'
+    }
+}
+
+# Сравниваем три первые части: версия сборки - «1.0.39.0», в имени файла «1.0.39».
 function Test-SameTeVersion([string]$A, [string]$B) {
     $x = [version]$A; $y = [version]$B
     return ($x.Major -eq $y.Major -and $x.Minor -eq $y.Minor -and $x.Build -eq $y.Build)
@@ -127,6 +161,19 @@ if ($copied) {
     }
 }
 
+# Вся цепочка TraceEvent - туда же. Для 1.x список пуст и цикл не делает ничего;
+# для 2.x без этих файлов приёмник не поднимется, и молча: платформа просто не
+# найдёт сборку и не скажет об этом ни в журнале, ни на экране.
+if ($copied -and $teBring.Count) {
+    foreach ($dep in $teBring) {
+        $depDst = Join-Path $targetDir (Split-Path $dep.Path -Leaf)
+        if ([IO.Path]::GetFullPath($dep.Path) -eq [IO.Path]::GetFullPath($depDst)) { continue }
+        if (-not (Wait-FileFree $depDst)) { Bad "прежняя $($dep.Name) осталась занятой"; $copied = $false; break }
+        try { Copy-Item $dep.Path $depDst -Force; Line '  зависимость' ('{0} {1}' -f $dep.Name, $dep.Version) }
+        catch { Bad "$($dep.Name) не скопировалась: $($_.Exception.Message)"; $copied = $false; break }
+    }
+}
+
 # Кэш сборок C/SIDE привязан к имени папки и версии; версию мы держим неизменной,
 # иначе объявление DotNet в C/AL пришлось бы править на каждую пересборку.
 $cache = Join-Path $env:TEMP 'Microsoft Dynamics NAV\Add-Ins'
@@ -139,8 +186,11 @@ if (Test-Path $cache) {
 if ($wasRunning -and -not $NoRestart) {
     try { Start-Service $ctx.ServiceName; Line 'Служба' 'запущена' }
     catch {
-        Bad 'служба не поднялась - возвращаю прежнюю сборку'
-        if ($had) { Copy-Item $backup $target -Force }
+        # Если своей сборки тут раньше не было, возвращать нечего - её надо УБРАТЬ.
+        # Иначе первая же неудачная установка оставляет службу лежать, а на диске -
+        # тот самый файл, из-за которого она не поднимается.
+        if ($had) { Bad 'служба не поднялась - возвращаю прежнюю сборку'; Copy-Item $backup $target -Force }
+        else      { Bad 'служба не поднялась - убираю свою сборку'; Remove-Item $target -Force -ErrorAction SilentlyContinue }
         Start-Service $ctx.ServiceName
     }
 }

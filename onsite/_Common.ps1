@@ -89,16 +89,80 @@ function Get-TraceEventDlls {
     param($Ctx)
     # Поставочный приёмник NAV лежит в своей подпапке, а на целевой базе может быть
     # только чужой, принесённый сторонним профайлером. Годится любой - берём старший.
+    #
+    # Версий у файла ДВЕ, и связывается сборка по второй. FileVersion пишут как попало:
+    # у 1.0.39 она «1.0.39.0», у 2.0.77 - «2.0.77», а ProductVersion там и вовсе с
+    # хвостом из git. Строгое имя сверяет AssemblyVersion, ею и отбираем вариант из
+    # пакета - иначе можно взять заведомо несвязываемую сборку.
     if (-not (Test-Path $Ctx.AddIns)) { return @() }
     $found = Get-ChildItem $Ctx.AddIns -Recurse -Filter 'Microsoft.Diagnostics.Tracing.TraceEvent.dll' -ErrorAction SilentlyContinue
     $list = @()
     foreach ($f in $found) {
+        $asmVer  = ''
+        $fileVer = ''
+        try { $asmVer  = [Reflection.AssemblyName]::GetAssemblyName($f.FullName).Version.ToString() } catch { }
+        try { $fileVer = [Diagnostics.FileVersionInfo]::GetVersionInfo($f.FullName).FileVersion } catch { }
+        # Не сборка вовсе - в отбор не берём, иначе сортировка по версии падает.
+        if (-not $asmVer) { continue }
         $list += [pscustomobject]@{
-            Version = [Diagnostics.FileVersionInfo]::GetVersionInfo($f.FullName).FileVersion
-            Path    = $f.FullName
+            Version     = $asmVer
+            FileVersion = $fileVer
+            Path        = $f.FullName
         }
     }
     return ($list | Sort-Object { [version]$_.Version } -Descending)
+}
+
+function Get-AssemblyNeeds {
+    param([string]$Path)
+    # Что придётся положить РЯДОМ, чтобы сборка вообще поднялась.
+    #
+    # Ради чего: TraceEvent 1.x самодостаточна - она ссылается только на сборки самой
+    # платформы. А 2.x разложена по отдельным файлам: FastSerialization, Dia2Lib,
+    # OSExtensions, TraceReloggerLib, System.Runtime.CompilerServices.Unsafe. Microsoft
+    # и сама везде кладёт их рядом с TraceEvent. Каталог надстройки обязан быть
+    # самодостаточным - соседние платформа не просматривает, - поэтому одной
+    # TraceEvent.dll в нашей папке хватает ТОЛЬКО для 1.x.
+    #
+    # Ловушка, из-за которой это не всплывало: csc собирает приёмник по одной ссылке на
+    # TraceEvent и об остальных сборках не спрашивает. Сборка проходит - связывание
+    # падает потом, уже в службе, и выглядит это как молчащий приёмник.
+    #
+    # Спрашиваем у самой среды тем же способом, каким будет спрашивать служба: если
+    # сборка не находится ПО ИМЕНИ (кэш сборок, каталог платформы) - не найдёт её и NAV.
+    $need  = @()
+    $seen  = @{}
+    $queue = New-Object System.Collections.Queue
+    $dir   = Split-Path $Path -Parent
+    $queue.Enqueue($Path)
+    $seen[[IO.Path]::GetFileName($Path).ToLower()] = $true
+
+    while ($queue.Count -gt 0) {
+        $cur = $queue.Dequeue()
+        $asm = $null
+        # Смешанные и неуправляемые файлы сюда попадать не должны, но если попали -
+        # пропускаем: разбирать нечего.
+        try { $asm = [Reflection.Assembly]::ReflectionOnlyLoadFrom($cur) } catch { continue }
+        foreach ($r in $asm.GetReferencedAssemblies()) {
+            $key = ($r.Name + '.dll').ToLower()
+            if ($seen.ContainsKey($key)) { continue }
+            $seen[$key] = $true
+            $inPlatform = $false
+            try { [void][Reflection.Assembly]::ReflectionOnlyLoad($r.FullName); $inPlatform = $true } catch { }
+            if ($inPlatform) { continue }
+            $file  = Join-Path $dir ($r.Name + '.dll')
+            $found = Test-Path $file
+            $need += [pscustomobject]@{
+                Name    = $r.Name
+                Version = $r.Version.ToString()
+                Path    = $(if ($found) { $file } else { '' })
+                Found   = $found
+            }
+            # Зависимость зависимости тоже считается: закрываем цепочку целиком.
+            if ($found) { $queue.Enqueue($file) }
+        }
+    }
+    return $need
 }
 
 function Invoke-NavSql {

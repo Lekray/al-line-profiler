@@ -36,7 +36,23 @@ if ($dlls.Count -eq 0) {
     Bad 'Microsoft.Diagnostics.Tracing.TraceEvent.dll не найдена в Add-ins'
     Bad 'без неё приёмник не соберётся и не запустится - нужна из поставки NAV или от чужого профайлера'
 } else {
-    foreach ($d in $dlls) { Line ('  ' + $d.Version) $d.Path }
+    foreach ($d in $dlls) {
+        Line ('  ' + $d.Version) $d.Path
+        # Версия тут - версия СБОРКИ, по ней и связывается ссылка; в свойствах файла
+        # написана своя, у 2.0.77 она вообще трёхчастная.
+        #
+        # Цепочка: 1.x самодостаточна, 2.x разложена по отдельным файлам. Каталог
+        # надстройки обязан быть самодостаточным, поэтому смотрим её здесь - до того,
+        # как шаг 3 что-то куда-то положит.
+        $need = @(Get-AssemblyNeeds -Path $d.Path)
+        if ($need.Count -eq 0) {
+            Line '     цепочка' 'нет - самодостаточна'
+        } else {
+            Line '     цепочка' (($need | ForEach-Object { $_.Name }) -join ', ')
+            $miss = @($need | Where-Object { -not $_.Found })
+            if ($miss.Count) { Bad ('  рядом не лежат: ' + (($miss | ForEach-Object { $_.Name }) -join ', ')) }
+        }
+    }
 }
 
 Head 'СОСЕДИ В Add-ins'
