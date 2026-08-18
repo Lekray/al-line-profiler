@@ -199,10 +199,85 @@ Write-Host ('Проверок: {0}; сошлось: {1}; разошлось: {2}
 foreach ($f in $script:GFails) { Write-Host ('  РАСХОЖДЕНИЕ: ' + $f) -ForegroundColor Yellow }
 
 # ===========================================================================
-# Дальше нужны справочники. Нет их — три остальных корпуса пропускаются, а
-# вердикт по корпусу Г всё равно выставляется.
+# Корпус Д — покрытие ключами на СИНТЕТИЧЕСКОМ справочнике
 # ===========================================================================
-try { Initialize-KeyAdvisor }
+# Справочник собирается прямо здесь, из трёх строк, и грузится как настоящий.
+# Так проверяется вся дорожка «состав ключа -> покрытие -> вердикт» без выгрузки
+# объектов заказчика: раньше эта половина советника на чистой копии не
+# проверялась ничем, и жили в ней ошибки, которые видно только на данных.
+#
+# Таблица и поля взяты штатные, номера — тоже; значения свойств подобраны так,
+# чтобы каждый случай отвечал на один вопрос.
+Write-Host ''
+Write-Host '=== КОРПУС Д: покрытие ключами, справочник синтетический ===' -ForegroundColor Cyan
+
+$dTab = [char]9
+$dDir = Join-Path ([System.IO.Path]::GetTempPath()) ('lp-ka-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $dDir -Force | Out-Null
+$dUtf = New-Object System.Text.UTF8Encoding($false)
+
+[System.IO.File]::WriteAllText((Join-Path $dDir 'fields.tsv'),
+    ((@('TableID','TableName','FieldNo','FieldName','DataType','FieldClass','CalcFormula','Enabled') -join $dTab) + "`r`n" +
+     ((@('37','Sales Line','1','Document Type','Option','Normal','','Yes')          -join $dTab) + "`r`n") +
+     ((@('37','Sales Line','2','Document No.','Code20','Normal','','Yes')           -join $dTab) + "`r`n") +
+     ((@('37','Sales Line','3','Line No.','Integer','Normal','','Yes')              -join $dTab) + "`r`n") +
+     ((@('37','Sales Line','4','Posting Date','Date','Normal','','Yes')             -join $dTab) + "`r`n") +
+     ((@('37','Sales Line','5','Location Filter','Code10','FlowFilter','','Yes')    -join $dTab) + "`r`n") +
+     ((@('37','Sales Line','6','Qty. (Absolute, Base)','Decimal','Normal','','Yes') -join $dTab) + "`r`n") +
+     ((@('37','Sales Line','7','Quantity','Decimal','Normal','','Yes')              -join $dTab) + "`r`n")), $dUtf)
+
+# У ключа 2 в SumIndexFields поле с ЗАПЯТОЙ В ИМЕНИ, взятое в кавычки, — ровно
+# та форма, на которой наивное деление по запятой рвало имя пополам.
+[System.IO.File]::WriteAllText((Join-Path $dDir 'keys.tsv'),
+    ((@('TableID','TableName','KeyNo','Enabled','KeyFields','SumIndexFields','Clustered','MaintainSQLIndex','MaintainSIFTIndex','SQLIndex') -join $dTab) + "`r`n" +
+     ((@('37','Sales Line','1','Yes','Document Type,Document No.,Line No.','','Yes','Yes','Yes','') -join $dTab) + "`r`n") +
+     ((@('37','Sales Line','2','Yes','Posting Date','Quantity,"Qty. (Absolute, Base)"','No','Yes','Yes','') -join $dTab) + "`r`n")), $dUtf)
+
+[System.IO.File]::WriteAllText((Join-Path $dDir 'sqlmap.tsv'),
+    ((@('SqlName','TableID','TableName') -join $dTab) + "`r`n" +
+     ((@('Sales Line','37','Sales Line') -join $dTab) + "`r`n")), $dUtf)
+
+Initialize-KeyAdvisor -OutDir $dDir -Force
+
+# Д-1. Находка №30: имя поля с запятой внутри кавычек — одно поле, а не два.
+$k2 = @(Get-KaTableKeys 37 | Where-Object { $_.KeyNo -eq 2 })[0]
+Test-G 'состав SumIndexFields: полей'            2     @($k2.SumIndexFields).Count
+Test-G 'состав SumIndexFields: имя не разорвано' $true (@($k2.SumIndexFields) -contains 'Qty. (Absolute, Base)')
+Test-G 'состав ключа 1: полей'                   3     @(@(Get-KaTableKeys 37 | Where-Object { $_.KeyNo -eq 1 })[0].Fields).Count
+
+# Д-2. Находка №32: при ПУСТОМ множестве равенств покрытым оказывался любой ключ,
+# и «ключа нет» пропадало. Диапазон годится, только если он первым полем ключа.
+$cvA = Test-KeyCoverage -TableId 37 -Equality @() -Range @('Posting Date')
+Test-G 'диапазон первым полем ключа: ключ есть'  'KeyExists' $cvA.Verdict
+Test-G 'диапазон первым полем ключа: это ключ 2' 2           $cvA.BestKeyNo
+
+$cvB = Test-KeyCoverage -TableId 37 -Equality @() -Range @('Line No.')
+Test-G 'диапазон не первым полем: ключа нет'     'NewKey'    $cvB.Verdict
+
+# Д-3. Находка №31: FlowFilter своей колонки в SQL не имеет и в покрытии
+# участвовать не может — иначе выходит совет по ключу, которого не нужно.
+$cvC = Test-KeyCoverage -TableId 37 -Equality @('Location Filter','Document Type')
+Test-G 'FlowFilter в отборе: ключ всё же найден' 'KeyExists' $cvC.Verdict
+Test-G 'FlowFilter в отборе: он отброшен'        $true ((@($cvC.Notes) -join ' ').Contains('Location Filter'))
+Test-G 'FlowFilter в отборе: остался один'       1 @($cvC.Equality).Count
+
+# Д-4. Находка №33: COUNT(*) считает СТРОКИ, а не сумму поля. Совет про SIFT
+# выходил с пустым именем суммы - «сумма «» ни в одном SumIndexFields не
+# объявлена», - потому что первым брался сам COUNT.
+$sqlCnt = 'SELECT COUNT(*) FROM {0}NAV{0}.dbo.{0}NAV$Sales Line{0} {0}37{0} WITH(READUNCOMMITTED) WHERE ({0}37{0}.{0}Document Type{0}=@0)' -f $Q
+$advCnt = Invoke-KeyAdvisor -Sql $sqlCnt
+Test-G 'COUNT(*): таблица определена'        $true              $advCnt.Table.Ok
+Test-G 'COUNT(*): вердикт не про сумму'      'NoAggregateField' $advCnt.Sift.Verdict
+Test-G 'COUNT(*): пустой суммы в совете нет' $false             ($advCnt.Advice -match 'сумма «»')
+
+Write-Host ('Проверок в корпусе Д: ' + $script:GTotal)
+Remove-Item -LiteralPath $dDir -Recurse -Force -ErrorAction SilentlyContinue
+
+# ===========================================================================
+# Дальше нужны НАСТОЯЩИЕ справочники. Нет их — три остальных корпуса
+# пропускаются, а вердикт по корпусам Г и Д всё равно выставляется.
+# ===========================================================================
+try { Initialize-KeyAdvisor -Force }
 catch {
     Write-Host ''
     Write-Host ('Корпуса А, Б и В пропущены: ' + $_.Exception.Message) -ForegroundColor DarkYellow
@@ -212,7 +287,7 @@ catch {
     Write-Host ('пройдено {0} из {1}' -f $script:GOk, $script:GTotal)
     foreach ($f in $script:GFails) { Write-Host ('  ' + $f) -ForegroundColor Red }
     if ($script:GFails.Count -gt 0) { exit 1 }
-    Write-Host 'разбор WHERE: без расхождений (справочники не проверялись)' -ForegroundColor Green
+    Write-Host 'разбор WHERE и покрытие ключами: без расхождений (справочники установки не проверялись)' -ForegroundColor Green
     exit 0
 }
 

@@ -1245,6 +1245,11 @@ function Invoke-PlObject {
             }
             'ExtendKey' {
                 $prop = New-KeyProposal -TableId $c.TableNo -Equality $eq -Range $rg -Coverage $cov
+                # Дописывать нечего - и находки нет. У ветки NewKey такой выход есть,
+                # у этой не было, и совет печатался с пустым перечнем: «дописать В
+                # КОНЕЦ ключа 16:  (вставка в середину сдвинет порядок обхода всем)».
+                # Пусто выходит штатно: все годные поля уже лежат в самом ключе.
+                if (@($prop.AddedFields).Count -eq 0) { break }
                 $msg = ('{0} по {1} ({2}): ключ {3} ({4}) целиком лежит в фильтре. {5}: дописать В КОНЕЦ ключа {3}: {6} (вставка в середину сдвинет порядок обхода всем){7}' -f `
                     $c.ConsumerOp, $c.Variable, $c.TableName, $cov.BestKeyNo, (@($cov.BestKey.Fields) -join ', '), $act, (@($prop.AddedFields) -join ', '), $tail)
             }

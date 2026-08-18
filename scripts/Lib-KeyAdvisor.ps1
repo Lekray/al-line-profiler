@@ -88,6 +88,40 @@ function ConvertTo-KaSqlName {
     return $sb.ToString()
 }
 
+function Split-KaFieldList {
+    <#
+    .SYNOPSIS
+        Состав ключа в список полей: запятая делит, но НЕ внутри кавычек.
+
+    .DESCRIPTION
+        Имя поля само может содержать запятую, и тогда C/SIDE берёт его в кавычки:
+        SumIndexFields=Quantity,"Qty. (Absolute, Base)". Наивное деление рвало такое
+        имя пополам, обе половины уходили в справочник мусором, а дальше это
+        оборачивалось и лишним полем в составе ключа, и «поле не объявлено в
+        SumIndexFields» для поля, которое там объявлено.
+    #>
+    param([string] $Text)
+    if (-not $Text) { return @() }
+    $out  = New-Object System.Collections.Generic.List[string]
+    $sb   = New-Object System.Text.StringBuilder
+    $inQ  = $false
+    for ($i = 0; $i -lt $Text.Length; $i++) {
+        $ch = $Text[$i]
+        if ($ch -eq '"') {
+            # Удвоенная кавычка внутри значения - это сама кавычка, а не граница.
+            if ($inQ -and ($i + 1) -lt $Text.Length -and $Text[$i + 1] -eq '"') {
+                [void]$sb.Append('"'); $i++; continue
+            }
+            $inQ = -not $inQ
+            continue
+        }
+        if ($ch -eq ',' -and -not $inQ) { [void]$out.Add($sb.ToString()); [void]$sb.Clear(); continue }
+        [void]$sb.Append($ch)
+    }
+    [void]$out.Add($sb.ToString())
+    return @($out | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+
 function Get-KaDefaultOutDir {
     # scripts -> корень репозитория
     return (Join-Path (Split-Path -Parent $PSScriptRoot) 'out')
@@ -159,9 +193,9 @@ function Initialize-KeyAdvisor {
         if (-not $keys.ContainsKey($tid)) { $keys[$tid] = New-Object System.Collections.ArrayList }
         if (-not $tables.ContainsKey($tid)) { $tables[$tid] = $c[1] }
 
-        $kf = @(); if ($c[4]) { $kf   = @($c[4] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
-        $si = @(); if ($c[5]) { $si   = @($c[5] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
-        $sq = @(); if ($c[9]) { $sq   = @($c[9] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+        $kf = @(Split-KaFieldList $c[4])
+        $si = @(Split-KaFieldList $c[5])
+        $sq = @(Split-KaFieldList $c[9])
 
         # пустое значение свойства означает умолчание Yes
         $maintainSql  = ($c[7] -ne 'No')
@@ -1208,6 +1242,27 @@ function Test-KeyCoverage {
     $Equality = @($Equality | ForEach-Object { ConvertTo-KaFieldName -TableId $TableId -Name $_ })
     $Range    = @($Range    | ForEach-Object { ConvertTo-KaFieldName -TableId $TableId -Name $_ })
     $OrderBy  = @($OrderBy  | ForEach-Object { ConvertTo-KaFieldName -TableId $TableId -Name $_ })
+
+    # FlowField и FlowFilter своей колонки в SQL не имеют и в индекс попасть не могут;
+    # выключенное поле - тоже. New-KeyProposal их отбрасывает, а покрытие считало
+    # наравне с обычными: выходил ExtendKey с пустым списком того, что дописывать,
+    # там где ключ на самом деле есть. Отбрасываем ЗДЕСЬ же, тем же правилом.
+    $dropped = New-Object System.Collections.Generic.List[string]
+    function Test-KaIndexable([int] $Tid, [string] $Name, $Bag) {
+        if (-not $Name) { return $false }
+        $fld = Get-KaField -TableId $Tid -Name $Name
+        if ($fld -and ($fld.FieldClass -ne 'Normal' -or -not $fld.Enabled)) {
+            [void]$Bag.Add($Name)
+            return $false
+        }
+        return $true
+    }
+    $Equality = @($Equality | Where-Object { Test-KaIndexable $TableId $_ $dropped })
+    $Range    = @($Range    | Where-Object { Test-KaIndexable $TableId $_ $dropped })
+    $OrderBy  = @($OrderBy  | Where-Object { Test-KaIndexable $TableId $_ $dropped })
+    foreach ($d in @($dropped | Select-Object -Unique)) {
+        $res.Notes += ("{0} — своей колонки в SQL нет либо поле выключено, в покрытии не учитывается" -f $d)
+    }
     $res.Equality = @($Equality); $res.Range = @($Range); $res.OrderBy = @($OrderBy)
 
     $eL  = @($Equality | ForEach-Object { (ConvertTo-KaSqlName $_).ToLowerInvariant() } | Select-Object -Unique)
@@ -1233,7 +1288,12 @@ function Test-KeyCoverage {
         $kf = $k.EffectiveLower
         $m  = 0
         while ($m -lt $kf.Count -and ($eL -contains $kf[$m])) { $m++ }
-        $eCovered = ($m -eq $eL.Count)
+        # При ПУСТОМ множестве равенств покрывать нечего, и прежнее ($m -eq 0) было
+        # истиной у ЛЮБОГО ключа: фильтр с одним диапазоном получал «ключ есть» по
+        # первому попавшемуся ключу, и настоящее «ключа нет» пропадало молча.
+        # Поиск по индексу при пустом E возможен, но только когда диапазон стоит
+        # ПЕРВЫМ полем ключа, - это отдельный случай ниже.
+        $eCovered = ($eL.Count -gt 0 -and $m -eq $eL.Count)
 
         $rOk = $true
         if ($r1) { $rOk = ($m -lt $kf.Count -and $kf[$m] -eq $r1) }
@@ -1249,15 +1309,19 @@ function Test-KeyCoverage {
         # ключе есть поле, которого в фильтре нет, дописывание в конец не поможет —
         # префикс всё равно оборвётся на этом поле.
         $insideE = ($m -gt 0 -and $m -eq @($k.FieldsLower).Count)
+        # Пустое E, но диапазон стоит первым полем ключа - это тоже поиск по индексу,
+        # просто по диапазону, а не по равенству.
+        $seekByRange = ($eL.Count -eq 0 -and $r1 -and $rOk)
         $level = 'None'
         if     ($eCovered -and $rOk -and $obOk) { $level = 'Full' }
-        elseif ($eCovered)                      { $level = 'Seek' }
+        elseif ($seekByRange -and $obOk)        { $level = 'Full' }
+        elseif ($eCovered -or $seekByRange)     { $level = 'Seek' }
         elseif ($insideE)                       { $level = 'Partial' }
         if ($eL.Count -eq 0 -and $rL.Count -eq 0 -and $obL.Count -gt 0 -and $obOk) { $level = 'Sort' }
 
         $score = 0
-        if ($eCovered)           { $score += 1000 }
-        if ($eCovered -and $rOk) { $score += 200 }
+        if ($eCovered -or $seekByRange)           { $score += 1000 }
+        if (($eCovered -or $seekByRange) -and $rOk) { $score += 200 }
         if ($obOk)               { $score += 100 }
         if ($level -eq 'Sort')   { $score += 400 }
         $score += $m * 5
@@ -1454,6 +1518,16 @@ function Test-SiftCoverage {
     if (-not $TableRef.Ok -or $TableRef.TableId -le 0) {
         $out.Verdict = 'Unresolved'
         $out.Note    = 'таблица не определена, судить о SIFT нельзя'
+        return $out
+    }
+
+    # COUNT(*) считает СТРОКИ, а не сумму поля: SumIndexFields под него не заводят,
+    # и SIFT тут ни при чём. Комментарий выше это и говорил, а кода не было - совет
+    # печатался про сумму «» с пустым именем поля, потому что $byField пуст и
+    # первым берётся сам COUNT. Такой совет не просто бесполезен, он сбивает с толку.
+    if (-not $out.Field) {
+        $out.Verdict = 'NoAggregateField'
+        $out.Note    = ('{0} считает строки, а не сумму поля — SIFT для этого не нужен; помогает ключ под фильтр, а не сумма' -f $out.Function)
         return $out
     }
 
