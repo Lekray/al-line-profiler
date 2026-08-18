@@ -111,15 +111,17 @@ function New-TestDump {
     .SYNOPSIS
         Минимальный дамп исходников: заголовок функции и два оператора.
     #>
-    param([string] $Root, [int] $Ot = 5, [int] $Oi = 110200)
+    param([string] $Root, [int] $Ot = 5, [int] $Oi = 110200,
+          [string[]] $Body, [string] $Hash = '0')
     New-Item -ItemType Directory -Path $Root -Force | Out-Null
     $u = New-Object System.Text.UTF8Encoding($false)
     $t = [char]9
+    if (-not $Body) { $Body = @('MyFunc()', '  Tick;', '  Done := Done + 1;') }
     [System.IO.File]::WriteAllText((Join-Path $Root ('{0}_{1}.al' -f $Ot, $Oi)),
-        "MyFunc()`r`n  Tick;`r`n  Done := Done + 1;`r`n", $u)
+        (($Body -join "`r`n") + "`r`n"), $u)
     [System.IO.File]::WriteAllText((Join-Path $Root 'index.tsv'),
         (('ObjectType','TypeName','ObjectId','Name','Lines','Bytes','Compiled','Date','Time','VersionList','Hash') -join $t) + "`r`n" +
-        ((([string]$Ot),'Codeunit',([string]$Oi),'Проверка','3','60','1','18.08.26','12:00:00','TEST','0') -join $t) + "`r`n", $u)
+        ((([string]$Ot),'Codeunit',([string]$Oi),'Проверка',([string]$Body.Count),'60','1','18.08.26','12:00:00','TEST',$Hash) -join $t) + "`r`n", $u)
 }
 
 function New-TestEvents {
@@ -638,6 +640,83 @@ Test-Value 'три поля: функций найдено'      3 $map19.Count
 Test-Value 'три поля: подписи различаются'  3 (@($nm19 | Sort-Object -Unique)).Count
 Test-Value 'три поля: обрубка нет'          $false ($nm19 -contains 'Amount ')
 Remove-Item -LiteralPath $dir19 -Recurse -Force -ErrorAction SilentlyContinue
+
+# ---------------------------------------------------------------------------
+# 20. Находка №22: перекомпиляция между дампом и трассой. В дамп добавлена строка
+#     'Extra;' - ровно то, что делает правка кода, - и всё, что ниже неё, съехало
+#     на строку. Калибровка этого НЕ видит: она берёт первые 200 событий, а они
+#     все выше вставки, дают стопроцентное совпадение и смещение +1. Сверка идёт
+#     по всем строкам объекта и потому расхождение находит.
+# ---------------------------------------------------------------------------
+function New-ShiftCase {
+    <#
+    .SYNOPSIS
+        Прогон, где трасса снята по одному коду, а дамп содержит вставленную строку.
+        -Same $true собирает тот же прогон по СОВПАДАЮЩЕМУ дампу (контроль).
+    #>
+    param([bool] $Same = $false, [string] $Hash = '0')
+    $root = Join-Path ([System.IO.Path]::GetTempPath()) ('lp-rc-' + [guid]::NewGuid().ToString('N'))
+    $src  = Join-Path $root 'src'
+    New-Item -ItemType Directory -Path $root -Force | Out-Null
+
+    $body = @('MyFunc()', '  Step01;', '  Step02;', '  Step03;', '  Step04;', '  Step05;', '  Step06;')
+    if (-not $Same) { $body = @('MyFunc()', '  Step01;', '  Step02;', '  Extra;',
+                                '  Step03;', '  Step04;', '  Step05;', '  Step06;') }
+    New-TestDump -Root $src -Body $body -Hash $Hash
+
+    # 200 событий выше вставки - ими и наполняется выборка калибровки;
+    # расхождение начинается только на 201-м
+    $rows = @(@{ Name = 'ALFunctionStart'; Ms = 0; Ot = 5; Oi = 110200; Fn = 'MyFunc'; Line = ''; Stmt = ''; Rec = 1 })
+    $rec  = 2
+    for ($i = 0; $i -lt 100; $i++) {
+        foreach ($pair in @(@{ L = 1; S = 'Step01;' }, @{ L = 2; S = 'Step02;' })) {
+            $rows += @{ Name = 'ALStatement'; Ms = $rec; Ot = 5; Oi = 110200; Fn = 'MyFunc'
+                        Line = ([string]$pair.L); Stmt = $pair.S; Rec = $rec }
+            $rec++
+        }
+    }
+    foreach ($pair in @(@{ L = 3; S = 'Step03;' }, @{ L = 4; S = 'Step04;' },
+                          @{ L = 5; S = 'Step05;' }, @{ L = 6; S = 'Step06;' })) {
+        $rows += @{ Name = 'ALStatement'; Ms = $rec; Ot = 5; Oi = 110200; Fn = 'MyFunc'
+                    Line = ([string]$pair.L); Stmt = $pair.S; Rec = $rec }
+        $rec++
+    }
+    $rows += @{ Name = 'ALFunctionStop'; Ms = $rec; Ot = 5; Oi = 110200; Fn = 'MyFunc'; Line = ''; Stmt = ''; Rec = $rec }
+    New-TestEvents (Join-Path $root 'events.tsv') $rows
+    return [pscustomobject]@{ Dir = $root; Src = $src }
+}
+
+$badTxt = 'Листинг не соответствует трассе'
+
+# контроль: дамп совпадает с трассой - ни кода 9, ни красной полосы
+$r22ok = New-ShiftCase -Same $true
+Test-Value 'дамп совпадает: код возврата' 0 (Invoke-Rebuild -RunDir $r22ok.Dir -Src $r22ok.Src)
+$h22ok = [System.IO.File]::ReadAllText((Join-Path $r22ok.Dir '5_110200.html'), [System.Text.Encoding]::UTF8)
+Test-Value 'дамп совпадает: оговорки нет'  $false ($h22ok.Contains($badTxt))
+Test-Value 'дамп совпадает: сверка в шапке' $true ($h22ok -match 'сверено 6 из 6 строк')
+
+# вставленная строка: калибровка сходится, сверка - нет
+$r22 = New-ShiftCase
+Test-Value 'вставлена строка: код возврата' 9 (Invoke-Rebuild -RunDir $r22.Dir -Src $r22.Src)
+$h22 = [System.IO.File]::ReadAllText((Join-Path $r22.Dir '5_110200.html'), [System.Text.Encoding]::UTF8)
+Test-Value 'вставлена строка: оговорка в отчёте' $true ($h22.Contains($badTxt))
+Test-Value 'вставлена строка: названа первая'    $true ($h22 -match 'первая разошедшаяся — 4')
+
+# отметка о дампе: тот же прогон, но .alsrc с тех пор переписали
+$r23 = New-ShiftCase -Same $true -Hash 'AAAA'
+Test-Value 'отметка: первая сборка чиста' 0 (Invoke-Rebuild -RunDir $r23.Dir -Src $r23.Src)
+Test-Value 'отметка: source.tsv записан'  $true (Test-Path -LiteralPath (Join-Path $r23.Dir 'source.tsv'))
+$ix23 = Join-Path $r23.Src 'index.tsv'
+[System.IO.File]::WriteAllText($ix23,
+    ([System.IO.File]::ReadAllText($ix23, [System.Text.Encoding]::UTF8)).Replace('AAAA', 'BBBB'),
+    (New-Object System.Text.UTF8Encoding($false)))
+Test-Value 'отметка: подмена дампа поймана' 9 (Invoke-Rebuild -RunDir $r23.Dir -Src $r23.Src)
+$h23 = [System.IO.File]::ReadAllText((Join-Path $r23.Dir '5_110200.html'), [System.Text.Encoding]::UTF8)
+Test-Value 'отметка: текст сверки при этом чист' $false ($h23.Contains($badTxt))
+
+foreach ($d in @($r22ok.Dir, $r22.Dir, $r23.Dir)) {
+    Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 # ---------------------------------------------------------------------------
 # вердикт

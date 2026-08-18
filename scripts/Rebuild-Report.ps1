@@ -17,8 +17,13 @@
 
     ВАЖНО: дамп исходников (.alsrc) должен быть снят с той же компиляции, что и
     трасса, иначе номера строк разъедутся. Если объект с тех пор перекомпилировали,
-    пересобирать отчёт по старой трассе нельзя — нужен новый сбор. Косвенный
-    признак расхождения виден в проценте совпадений при калибровке.
+    пересобирать отчёт по старой трассе нельзя — нужен новый сбор. Проверяется это
+    двумя способами, и оба обязательны. Прямой: тексты операторов сличаются с
+    листингом по ВСЕМ строкам объекта (Test-AlListingMatch), а не по выборке
+    калибровки — та берёт первые 200 событий и правку ниже по файлу не видит.
+    По отметке: первая сборка кладёт в каталог прогона source.tsv с Hash объекта из
+    index.tsv ([Object Metadata].[Hash] платформы, меняется при перекомпиляции), и
+    повторная сборка видит, что общий .alsrc с тех пор переписали.
 
 .PARAMETER RunDir
     Каталог прогона: в нём лежит events.tsv, туда же кладутся lines.tsv,
@@ -45,7 +50,8 @@
 .OUTPUTS
     Код возврата: 0 — отчёт построен; 8 — в трассировке есть операторы, но не этого
     объекта, то есть в клиенте выполнен другой сценарий (отчёт построен, без таймингов);
-    9 — отчёт построен, но гейт валидности прогона его забраковал: числам верить нельзя;
+    9 — отчёт построен, но верить его числам нельзя: либо гейт валидности прогона
+    забраковал трассу, либо листинг не соответствует ей (объект пересобран после дампа);
     1 — построить отчёт не удалось.
 
     Трасса вовсе без событий уровня оператора (облегчённый сбор) — не ошибка: отчёт
@@ -89,13 +95,48 @@ $repPath   = Join-Path $PSScriptRoot 'Build-Report.ps1'
 
 $reportArgs = @{ ObjectType = $ObjectType; ObjectId = $ObjectId; OutFile = $OutFile }
 if ($SourceRoot) { $reportArgs['SourceRoot'] = $SourceRoot }
-$exitCode = 0
+$exitCode   = 0
+$reportNote = ''   # предупреждение в саму страницу: её уносят скриншотом, консоль - нет
 
 if (Test-Path -LiteralPath $EventsFile) {
     $listArgs = @{ ObjectType = $ObjectType; ObjectId = $ObjectId }
     if ($SourceRoot) { $listArgs['SourceRoot'] = $SourceRoot }
     $listing = @(Get-AlListing @listArgs)
     $events  = Import-AlTraceEvents -Path $EventsFile
+
+    # Отметка о дампе. Hash в index.tsv - это [Object Metadata].[Hash] платформы, он
+    # меняется при каждой перекомпиляции объекта. Читали его и раньше, но не сверяли
+    # ни с чем, и сверять было не с чем: метаданных объекта на момент сбора в каталоге
+    # прогона нет. Кладём их туда при первой сборке - тогда повторная видит, что общий
+    # .alsrc с тех пор переписали. Отсутствие index.tsv тут не ошибка: без него не
+    # соберётся и сам отчёт, ругаться дважды незачем.
+    $stampPath = Join-Path $RunDir 'source.tsv'
+    $objInfo   = $null
+    try { $objInfo = Get-AlObjectInfo @listArgs } catch { }
+    if ($objInfo) {
+        $stampKey = '{0}/{1}' -f $ObjectType, $ObjectId
+        $stampNow = @($stampKey, $objInfo.Hash, $objInfo.Date, $objInfo.Time, $objInfo.Lines) -join "`t"
+        $stampOld = ''
+        $stampAll = New-Object System.Collections.Generic.List[string]
+        if (Test-Path -LiteralPath $stampPath) {
+            foreach ($row in [System.IO.File]::ReadAllLines($stampPath, [System.Text.Encoding]::UTF8)) {
+                if (-not $row.Trim()) { continue }
+                if (($row -split "`t")[0] -eq $stampKey) { $stampOld = $row } else { [void]$stampAll.Add($row) }
+            }
+        }
+        if ($stampOld -and $stampOld -ne $stampNow) {
+            $o = $stampOld -split "`t"
+            Write-Host '   дамп исходников подменён после этого прогона' -ForegroundColor Red
+            Write-Warn2 ('   при сборе: хэш {0}, изменён {1} {2}, строк {3}' -f $o[1], $o[2], $o[3], $o[4])
+            Write-Warn2 ('   сейчас  : хэш {0}, изменён {1} {2}, строк {3}' -f
+                         $objInfo.Hash, $objInfo.Date, $objInfo.Time, $objInfo.Lines)
+            Write-Warn2 '   объект пересобран; отчёт по старой трассе покажет чужие строки - нужен новый сбор'
+            $exitCode = 9
+        }
+        [void]$stampAll.Add($stampNow)
+        [System.IO.File]::WriteAllText($stampPath, (($stampAll -join "`r`n") + "`r`n"),
+                                       (New-Object System.Text.UTF8Encoding($false)))
+    }
 
     # Проверяем, что в трассировке вообще есть операторы нужного объекта.
     # Параметр -ObjectId задаёт лишь то, ПО ЧЕМУ строить отчёт; выполнить
@@ -149,6 +190,40 @@ if (Test-Path -LiteralPath $EventsFile) {
                 Write-Warn2 'резервного маппинга нет - считаю по смещению как есть'
             }
         }
+        # Сверка «тот ли это листинг». Косвенный признак, на который ссылалась шапка
+        # этого файла, - процент совпадений при калибровке - вопрос НЕ закрывает:
+        # калибровка берёт первые 200 событий, и правка ниже по файлу ей не видна.
+        # Сличаем все строки. В режиме Fallback смысла нет: там номер строки и берётся
+        # из совпадения текста, сверять его с тем же текстом - тавтология.
+        $numbering = 'платформенная, смещение {0}{1}' -f
+                     $(if ($off.Offset -gt 0) { '+' } else { '' }), $off.Offset
+        if ($measureArgs.ContainsKey('LineSource')) {
+            $numbering = 'по тексту оператора (калибровка не сошлась)'
+        }
+        else {
+            $vf = Test-AlListingMatch -Events $events -Listing $listing -LineOffset $off.Offset `
+                                      -ObjectType $ObjectType -ObjectId $ObjectId
+            if ($vf.Checked -gt 0) {
+                Write-Note ('сверка листинга: совпало {0} из {1} строк ({2} %)' -f
+                            $vf.Matched, $vf.Checked, $vf.MatchPct)
+                $numbering = '{0}, сверено {1} из {2} строк' -f $numbering, $vf.Matched, $vf.Checked
+            }
+            if (-not $vf.Ok) {
+                $reportNote = ('Листинг не соответствует трассе: совпало {0} из {1} строк ({2} %), ' +
+                               'первая разошедшаяся — {3}. Объект пересобран после дампа: числам и ' +
+                               'номерам строк в этом отчёте верить нельзя, нужен новый сбор.') -f
+                               $vf.Matched, $vf.Checked, $vf.MatchPct, $vf.FirstBad
+                Write-Host ('   листинг не соответствует трассе: совпало {0} из {1} строк ({2} %)' -f
+                            $vf.Matched, $vf.Checked, $vf.MatchPct) -ForegroundColor Red
+                Write-Warn2 ('   первая разошедшаяся строка - {0}; объект пересобран после дампа' -f $vf.FirstBad)
+                foreach ($s in $vf.Samples) {
+                    Write-Warn2 ('   {0,6}: трасса [{1}] / листинг [{2}]' -f $s.LineNo, $s.Statement, $s.Listing)
+                }
+                $exitCode = 9
+            }
+        }
+        $reportArgs['Numbering'] = $numbering
+
         $metrics = Measure-AlLines @measureArgs
         Export-AlLineMetrics -Lines $metrics -Path $linesPath | Out-Null
         Write-Note ('метрики: строк {0}' -f @($metrics).Count)
@@ -192,6 +267,9 @@ if (Test-Path -LiteralPath $EventsFile) {
 else {
     Write-Warn2 ('нет файла событий {0} — отчёт будет без таймингов' -f $EventsFile)
 }
+
+# Оговорка уезжает в саму страницу: её уносят скриншотом, а консоль остаётся здесь.
+if ($reportNote) { $reportArgs['Note'] = $reportNote }
 
 $global:LASTEXITCODE = 0
 & $repPath @reportArgs

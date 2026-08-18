@@ -7,6 +7,7 @@
     Вход — events.tsv, который пишет Collect-AlTrace.ps1: одна строка на событие ETW,
     колонки EventId, EventName, TimeCreatedTicks, SessionId, ObjectType, ObjectId,
     FunctionName, LineNumber, Statement, Level, RecordId, ThreadId, Raw.
+    Сверка «тот ли листинг» — Test-AlListingMatch, по всем строкам, а не по выборке.
     Колонки ищутся ПО ИМЕНАМ заголовка: порядок в файле не фиксируется, как и порядок
     полей payload в манифесте провайдера.
 
@@ -502,6 +503,119 @@ function Resolve-AlLineOffset {
         Candidates  = $rows
         Fallback    = $fallback
         Message     = $msg
+    }
+}
+
+function Test-AlListingMatch {
+    <#
+    .SYNOPSIS
+        Сверка листинга с трассой по ВСЕМ строкам объекта, а не по выборке
+        калибровки. Отвечает на вопрос «тот ли это листинг», а не «какое смещение».
+
+    .DESCRIPTION
+        Дамп исходников и трасса могут разъехаться: объект перекомпилировали между
+        дампом и сценарием, отчёт пересобрали по вчерашнему каталогу прогона (общий
+        .alsrc с тех пор переписан), сбор запустили с -SkipDump поверх старого дампа.
+        Номера строк тогда врут, а выглядит всё нормально.
+
+        Признак, на который в шапке Rebuild-Report ссылались раньше, — «процент
+        совпадений при калибровке» — эту проверку НЕ делает: калибровка берёт первые
+        -SampleSize событий. На реальном прогоне первые 200 событий покрывали строки
+        объекта примерно до 501-й, тогда как события доходили до 546-й: правка ниже
+        501-й строки калибровкой не видна вовсе. И модель у калибровки не та: одна
+        константа из {-1,0,1} на весь файл вставку строки не описывает.
+
+        Здесь сличаются все РАЗЛИЧНЫЕ пары «номер строки + текст оператора» по всей
+        трассе. Единица учёта — СТРОКА, а не оператор: в одной строке C/AL бывает
+        несколько операторов ('IF Cond THEN Foo;'), платформа шлёт их порознь, и текст
+        второго со строкой листинга не совпадёт никогда. Строка засчитана, если лёг
+        хотя бы один её оператор. Сдвиг нумерации так виден, а многооператорная
+        строка ложной тревоги не даёт.
+
+        Hash из index.tsv ([Object Metadata].[Hash] платформы) здесь не участвует:
+        сверять его в момент сборки отчёта не с чем — метаданных объекта на момент
+        сбора в каталоге прогона нет. Отметку кладёт Rebuild-Report, и она ловит
+        подмену дампа между сборками; эта же проверка ловит расхождение по существу.
+
+    .PARAMETER LineOffset
+        Смещение, выбранное калибровкой: строка листинга = lineNumber + смещение.
+
+    .PARAMETER MinMatchPct
+        Доля совпавших строк, ниже которой листинг признаётся чужим.
+
+    .PARAMETER SampleCount
+        Сколько несовпавших строк вернуть для диагноза.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][object[]] $Events,
+        [Parameter(Mandatory)][object[]] $Listing,
+        [int]    $LineOffset  = 1,
+        [int]    $ObjectType  = -1,
+        [int]    $ObjectId    = -1,
+        [double] $MinMatchPct = 80.0,
+        [int]    $SampleCount = 5
+    )
+
+    $maxLine = 0
+    foreach ($l in $Listing) { if ($l.LineNo -gt $maxLine) { $maxLine = $l.LineNo } }
+    $norm = New-Object 'string[]' ($maxLine + 2)
+    foreach ($l in $Listing) { $norm[$l.LineNo] = ConvertTo-AlNormText $l.Text }
+
+    $seen     = @{}   # пара «строка + текст» уже сверена
+    $lineOk   = @{}   # строка листинга -> лёг ли на неё хоть один оператор
+    $lineBad  = @{}   # строка листинга -> первый не совпавший текст, для диагноза
+
+    foreach ($e in $Events) {
+        if ($e.Kind -ne 'Stmt') { continue }
+        if ($ObjectType -ge 0 -and $e.ObjectType -ne $ObjectType) { continue }
+        if ($ObjectId   -ge 0 -and $e.ObjectId   -ne $ObjectId)   { continue }
+        if ($e.LineNumber -lt 0) { continue }
+
+        $k = '{0}|{1}' -f $e.LineNumber, $e.Statement
+        if ($seen.ContainsKey($k)) { continue }
+        $seen[$k] = $true
+
+        $ln  = $e.LineNumber + $LineOffset
+        $hit = $false
+        if ($ln -ge 1 -and $ln -le $maxLine) {
+            $hit = ((Test-AlTextMatch (ConvertTo-AlNormText $e.Statement) ([string]$norm[$ln])) -gt 0)
+        }
+        if ($hit) { $lineOk[$ln] = $true }
+        else {
+            if (-not $lineOk.ContainsKey($ln)) { $lineOk[$ln] = $false }
+            if (-not $lineBad.ContainsKey($ln)) { $lineBad[$ln] = $e.Statement }
+        }
+    }
+
+    $checked  = $lineOk.Count
+    $matched  = 0
+    $firstBad = 0
+    $samples  = New-Object System.Collections.Generic.List[object]
+    foreach ($ln in @($lineOk.Keys | Sort-Object)) {
+        if ($lineOk[$ln]) { $matched++; continue }
+        if ($firstBad -eq 0) { $firstBad = $ln }
+        if ($samples.Count -lt $SampleCount) {
+            $txt = ''
+            if ($ln -ge 1 -and $ln -le $maxLine) { $txt = [string]$norm[$ln] }
+            [void]$samples.Add([pscustomobject]@{
+                LineNo = $ln; Statement = $lineBad[$ln]; Listing = $txt })
+        }
+    }
+
+    $pct = 0.0
+    if ($checked -gt 0) { $pct = 100.0 * $matched / $checked }
+    # сверять нечего — это не расхождение: облегчённый сбор операторов не шлёт вовсе
+    $ok = ($checked -eq 0 -or $pct -ge $MinMatchPct)
+
+    return [pscustomobject]@{
+        Checked     = $checked
+        Matched     = $matched
+        MatchPct    = [math]::Round($pct, 2)
+        FirstBad    = $firstBad
+        LineOffset  = $LineOffset
+        Ok          = $ok
+        Samples     = $samples.ToArray()
     }
 }
 

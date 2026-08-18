@@ -34,6 +34,14 @@
 .PARAMETER OutFile
     Куда писать отчёт. По умолчанию <корень репозитория>\out\<тип>_<id>.html
 
+.PARAMETER Numbering
+    Что написать в шапке про нумерацию строк: конвейер передаёт сюда итог калибровки
+    и сверки листинга. Отчёт уносят скриншотом, и оговорка обязана быть НА НЁМ, а не
+    только в консоли сборки.
+
+.PARAMETER Note
+    Оговорка красной полосой под шапкой: листинг не соответствует трассе и т. п.
+
 .PARAMETER TopCount
     Сколько строк показать в разделе «Топ строк». По умолчанию 25.
 
@@ -57,6 +65,8 @@ param(
     [string] $MetricsFile,
     [string] $HintsFile,
     [string] $OutFile,
+    [string] $Numbering = 'платформенная',
+    [string] $Note,
     [int]    $TopCount = 25,
     [switch] $Open
 )
@@ -103,6 +113,16 @@ function Format-Ms {
     if ($V -le 0) { return '' }
     if ($V -ge 100) { return ('{0:N0}' -f $V) }
     return ('{0:N1}' -f $V)
+}
+
+function Format-Ms2 {
+    <#
+    .SYNOPSIS
+        То же, но для строки консоли: ноль печатается нулём, а не пустотой.
+    #>
+    param([double]$V)
+    if ($V -le 0) { return '0' }
+    return (Format-Ms $V)
 }
 
 # --- данные -----------------------------------------------------------------
@@ -326,6 +346,7 @@ h2{font-size:15px;margin:0 0 8px;font-weight:600}
 .meta{color:var(--muted);font-size:12.5px;display:flex;flex-wrap:wrap;gap:6px 18px}
 .meta b{color:var(--ink2);font-weight:600}
 .note{background:var(--hl);color:var(--ink);padding:7px 20px;font-size:13px;border-bottom:1px solid var(--rule)}
+.note.bad{background:#8E2F3A;color:#FFF3EE;font-weight:600}
 .wrap{display:grid;grid-template-columns:270px minmax(0,1fr);align-items:start}
 @media (max-width:980px){.wrap{grid-template-columns:1fr}nav{display:none}}
 nav{position:sticky;top:74px;max-height:calc(100vh - 74px);overflow:auto;
@@ -391,8 +412,11 @@ if ($hasTimings) {
     Add-Line ('<span>в т.ч. SQL: <b>{0} мс</b></span>' -f (Format-Ms $sumSql))
 }
 if ($hintsAll -gt 0) { Add-Line ('<span>подсказок: <b>{0}</b></span>' -f $hintsAll) }
-Add-Line ('<span>нумерация: <b>платформенная</b></span>')
+Add-Line ('<span>нумерация: <b>{0}</b></span>' -f (ConvertTo-HtmlText $Numbering))
 Add-Line '</div></header>'
+if ($Note) {
+    Add-Line ('<div class="note bad">{0}</div>' -f (ConvertTo-HtmlText $Note))
+}
 if (-not $hasTimings) {
     Add-Line '<div class="note">Тайминги не собраны — показан только листинг. Колонки времени появятся после прогона трассировки.</div>'
 }
@@ -557,7 +581,10 @@ Write-Host ("Объект:  {0}" -f $title)
 Write-Host ("Строк:   {0}" -f $info.Lines)
 Write-Host ("Функций: {0}" -f $funcs.Count)
 if ($hasTimings) {
-    Write-Host ("Метрики: {0} строк, Self {1} мс, SQL {2} мс" -f $metrics.Count, (Format-Ms $sumSelf), (Format-Ms $sumSql))
+    # Format-Ms отдаёт пустую строку на нуле - в ячейке таблицы так и надо, а в
+    # строке консоли выходило "SQL  мс" с дырой посередине.
+    Write-Host ("Метрики: {0} строк, Self {1} мс, SQL {2} мс" -f $metrics.Count,
+                (Format-Ms2 $sumSelf), (Format-Ms2 $sumSql))
 } else {
     Write-Host 'Метрики: не собраны' -ForegroundColor Yellow
 }
