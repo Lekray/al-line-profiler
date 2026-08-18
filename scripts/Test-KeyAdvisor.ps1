@@ -31,9 +31,9 @@ $ErrorActionPreference = 'Stop'
 $scripts = $PSScriptRoot
 if (-not $DataDir) { $DataDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'out' }
 . (Join-Path $scripts 'Lib-KeyAdvisor.ps1')
-Initialize-KeyAdvisor
 
-$Q = [char]34   # двойная кавычка
+$Q   = [char]34   # двойная кавычка
+$Q39 = [char]39   # апостроф
 
 function Wrap-Sql {
     param([string]$Name)
@@ -64,6 +64,126 @@ function New-NavSql {
 }
 
 function Col { param([int]$TableId, [string]$Field) return ('{0}{1}{0}.{0}{2}{0}' -f $Q, $TableId, (ConvertTo-KaSqlName $Field)) }
+
+# ===========================================================================
+# Корпус Г — разбор WHERE: без справочников, без базы
+# ===========================================================================
+# Единственный корпус, который идёт на ЧИСТОЙ копии репозитория. Три остальных
+# опираются на справочники, собранные с выгрузки конкретной установки, и на
+# машине без неё не проверяют вообще ничего. Разбор же текста запроса от базы
+# не зависит — и именно в нём живут самые тихие ошибки: неверно разобранный
+# предикат не падает, а просто выпадает из отбора, и совет молча беднеет.
+#
+# Ответы посчитаны руками, как в Test-AlTrace.ps1.
+Write-Host ''
+Write-Host '=== КОРПУС Г: разбор WHERE, без справочников ===' -ForegroundColor Cyan
+
+$script:GOk = 0
+$script:GTotal = 0
+$script:GFails = New-Object System.Collections.ArrayList
+function Test-G {
+    param([string]$What, $Expect, $Got)
+    $script:GTotal++
+    if ("$Expect" -eq "$Got") { $script:GOk++; return }
+    [void]$script:GFails.Add(('{0}: ждали <{1}>, получили <{2}>' -f $What, $Expect, $Got))
+}
+
+# --- снятие внешних скобок -------------------------------------------------
+# Проверять надо не только «сняли», но и «не сняли лишнего»: у «(A) OR (B)»
+# первая пара закрывается в середине, и снятие рвёт условие пополам.
+$parenCases = @(
+    @{ In = '(A=1)';           Out = 'A=1'             },
+    @{ In = '((A=1))';         Out = 'A=1'             },
+    @{ In = '(A=1 AND B=2)';   Out = 'A=1 AND B=2'     },
+    @{ In = '(f(x) + g(y))';   Out = 'f(x) + g(y)'     },
+    @{ In = '(A=1) OR (A=2)';  Out = '(A=1) OR (A=2)'  },
+    @{ In = '(A=1) AND (B=2)'; Out = '(A=1) AND (B=2)' },
+    @{ In = '((A=1)';          Out = '((A=1)'          },
+    @{ In = '(A=1))';          Out = '(A=1))'          }
+)
+foreach ($pc in $parenCases) { Test-G ('скобки ' + $pc.In) $pc.Out (Remove-KaOuterParens $pc.In) }
+
+# Скобка внутри литерала на глубину не влияет и снятию не мешает.
+$litParen = '(' + $Q39 + '(' + $Q39 + ')'
+Test-G 'скобка внутри литерала' ($Q39 + '(' + $Q39) (Remove-KaOuterParens $litParen)
+
+# --- классы предикатов -----------------------------------------------------
+# Форма колонок ровно та, что порождает NAV: "18"."No_".
+$predCases = @(
+    @{ W = '({0}=@1)'                    -f (Col 17 'No_');                          Class = 'Equality';     Col = 'No_';          Op = '='           }
+    @{ W = '(({0}=@1) OR ({0}=@2))'      -f (Col 17 'No_');                          Class = 'Equality';     Col = 'No_';          Op = 'OR'          }
+    @{ W = '(({0}>=@1) OR ({0}<=@2))'    -f (Col 17 'No_');                          Class = 'Range';        Col = 'No_';          Op = 'OR'          }
+    @{ W = '(({0}=@1) OR ({1}=@2))'      -f (Col 17 'No_'), (Col 17 'Name');         Class = 'NonIndexable'; Col = '';             Op = 'OR'          }
+    @{ W = '({0} BETWEEN @1 AND @2)'     -f (Col 17 'Posting Date');                 Class = 'Range';        Col = 'Posting Date'; Op = 'BETWEEN'     }
+    @{ W = '({0} IS NULL)'               -f (Col 17 'No_');                          Class = 'Equality';     Col = 'No_';          Op = 'IS NULL'     }
+    @{ W = '({0} IS NOT NULL)'           -f (Col 17 'No_');                          Class = 'NonIndexable'; Col = 'No_';          Op = 'IS NOT NULL' }
+    @{ W = '({0} IN (@1,@2))'            -f (Col 17 'No_');                          Class = 'Equality';     Col = 'No_';          Op = 'IN'          }
+    @{ W = '({0} NOT IN (@1,@2))'        -f (Col 17 'No_');                          Class = 'NonIndexable'; Col = 'No_';          Op = 'NOT IN'      }
+    @{ W = '({0} LIKE {1}ABC%{1})'       -f (Col 17 'Name'), $Q39;                   Class = 'Range';        Col = 'Name';         Op = 'LIKE'        }
+    @{ W = '({0} LIKE {1}%ABC{1})'       -f (Col 17 'Name'), $Q39;                   Class = 'NonIndexable'; Col = 'Name';         Op = 'LIKE'        }
+    @{ W = '({0} LIKE @1)'               -f (Col 17 'Name');                         Class = 'Unknown';      Col = 'Name';         Op = 'LIKE'        }
+    @{ W = '(UPPER({0})=@1)'             -f (Col 17 'Name');                         Class = 'NonIndexable'; Col = 'Name';         Op = 'UPPER'       }
+    @{ W = '({0}<>@1)'                   -f (Col 17 'No_');                          Class = 'NonIndexable'; Col = 'No_';          Op = '<>'          }
+    @{ W = '({0}>=@1)'                   -f (Col 17 'No_');                          Class = 'Range';        Col = 'No_';          Op = '>='          }
+    @{ W = '({0}={1})'                   -f (Col 17 'No_'), (Col 18 'Customer No_'); Class = 'Join';         Col = 'No_';          Op = '='           }
+    @{ W = '(NOT ({0}=@1))'              -f (Col 17 'No_');                          Class = 'NonIndexable'; Col = '';             Op = 'NOT'         }
+)
+foreach ($pc in $predCases) {
+    $p = Get-KaTermPredicate $pc.W
+    Test-G ('класс '    + $pc.W) $pc.Class $p.Class
+    Test-G ('поле '     + $pc.W) $pc.Col   $p.Column
+    Test-G ('оператор ' + $pc.W) $pc.Op    $p.Op
+}
+
+# --- деление WHERE на слагаемые --------------------------------------------
+# AND внутри BETWEEN точкой деления не является, иначе диапазон разваливается
+# на два неразобранных куска.
+$splitCases = @(
+    @{ W = '({0}=@1) AND ({1}=@2)'               -f (Col 17 'A'), (Col 17 'B'); N = 2 }
+    @{ W = '{0} BETWEEN @1 AND @2 AND {1}=@3'    -f (Col 17 'A'), (Col 17 'B'); N = 2 }
+    @{ W = '({0}=@1) AND (({1}=@2) OR ({1}=@3))' -f (Col 17 'A'), (Col 17 'B'); N = 2 }
+    @{ W = '({0}=@1)'                            -f (Col 17 'A');               N = 1 }
+)
+foreach ($sp in $splitCases) {
+    $scan  = Get-KaScan $sp.W
+    $parts = @(Split-KaTerms -Scan $scan -Start 0 -End $sp.W.Length -Depth 0 -Operator 'AND')
+    Test-G ('слагаемых в ' + $sp.W) $sp.N $parts.Count
+}
+
+# Ключевое слово внутри литерала точкой деления быть не может: значения со
+# словом AND внутри в справочниках рабочей базы встречаются.
+$litW  = '{0}={1}X AND Y{1}' -f (Col 17 'A'), $Q39
+$litSc = Get-KaScan $litW
+Test-G 'AND внутри литерала не считается' 0 @(Find-KaToken -Scan $litSc -Pattern '\bAND\b' -Depth 0).Count
+
+# --- имена -----------------------------------------------------------------
+# Платформа заменяет на подчёркивание . " \ / ' % ] [ ; пробел НЕ заменяет.
+Test-G 'имя SQL для G/L Entry'  'G_L Entry'    (ConvertTo-KaSqlName 'G/L Entry')
+Test-G 'имя SQL для Sales Line' 'Sales Line'   (ConvertTo-KaSqlName 'Sales Line')
+$cn = Get-KaColumnName (Col 17 'Posting Date')
+Test-G 'квалификатор колонки' '17'           $cn.Qualifier
+Test-G 'имя колонки'          'Posting Date' $cn.Column
+
+Write-Host ('Проверок: {0}; сошлось: {1}; разошлось: {2}' -f $script:GTotal, $script:GOk, ($script:GTotal - $script:GOk))
+foreach ($f in $script:GFails) { Write-Host ('  РАСХОЖДЕНИЕ: ' + $f) -ForegroundColor Yellow }
+
+# ===========================================================================
+# Дальше нужны справочники. Нет их — три остальных корпуса пропускаются, а
+# вердикт по корпусу Г всё равно выставляется.
+# ===========================================================================
+try { Initialize-KeyAdvisor }
+catch {
+    Write-Host ''
+    Write-Host ('Корпуса А, Б и В пропущены: ' + $_.Exception.Message) -ForegroundColor DarkYellow
+    Write-Host '  Справочники собираются с выгрузки объектов целевой базы, а её в репозитории нет.' -ForegroundColor DarkYellow
+    Write-Host '  Собрать: powershell -File scripts/Build-KeysIndex.ps1' -ForegroundColor DarkYellow
+    Write-Host ''
+    Write-Host ('пройдено {0} из {1}' -f $script:GOk, $script:GTotal)
+    foreach ($f in $script:GFails) { Write-Host ('  ' + $f) -ForegroundColor Red }
+    if ($script:GFails.Count -gt 0) { exit 1 }
+    Write-Host 'разбор WHERE: без расхождений (справочники не проверялись)' -ForegroundColor Green
+    exit 0
+}
 
 # ===========================================================================
 # Корпус А — боевой: события Application/705 «Long running SQL statement»
@@ -389,3 +509,19 @@ foreach ($cs in $cases) {
 }
 [System.IO.File]::WriteAllText((Join-Path $DataDir 'advice-samples.txt'), (($dump -join "`r`n") + "`r`n"), (New-Object Text.UTF8Encoding($false)))
 Write-Host ('Примеры советов: ' + (Join-Path $DataDir 'advice-samples.txt'))
+
+# ===========================================================================
+# Вердикт
+# ===========================================================================
+# Судит сама: «пройдено N из M» и ненулевой код возврата при расхождении.
+# Считаются только проверки с заранее известным ответом — корпус Г и ожидания
+# корпуса В. Корпуса А и Б эталона не имеют и дают статистику, а не вердикт.
+$totalAsserts  = $script:GTotal + $cases.Count
+$passedAsserts = $script:GOk + $okAssert
+Write-Host ''
+Write-Host ('пройдено {0} из {1}' -f $passedAsserts, $totalAsserts)
+foreach ($f in $script:GFails) { Write-Host ('  ' + $f) -ForegroundColor Red }
+foreach ($b in $bad)           { Write-Host ('  ' + $b) -ForegroundColor Red }
+if ($passedAsserts -ne $totalAsserts) { exit 1 }
+Write-Host 'советник по ключам: без расхождений' -ForegroundColor Green
+exit 0
