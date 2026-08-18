@@ -5651,7 +5651,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
             TempMeas."Object ID" := Receiver.CurrentObjectId;
             // Приемник хранит номер строки ровно так, как его прислал ETW; в листинге
             // Code Coverage та же строка на единицу больше - смещение проверено на
-            // Report 12436 и Codeunit 129903.
+            // Report 12436 и на прикладном кодюните.
             TempMeas."Line No." := Receiver.CurrentLineNo + LineShift;
             TempMeas."Function Name" := COPYSTR(Receiver.CurrentFunctionName,1,MAXSTRLEN(TempMeas."Function Name"));
             TempMeas."Timed Hits" := Receiver.CurrentHits;
