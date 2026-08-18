@@ -1,4 +1,4 @@
-OBJECT Codeunit 110207 AL Profiler Package Unpacker
+OBJECT Codeunit 110207 Mail Package Unpacker
 {
   OBJECT-PROPERTIES
   {
@@ -22,6 +22,10 @@ OBJECT Codeunit 110207 AL Profiler Package Unpacker
       SaveTitleTxt@1000000002 : TextConst 'ENU=Save the mailed file';
       SaveFilterTxt@1000000003 : TextConst 'ENU=File (*.%1)|*.%1|All files (*.*)|*.*';
       NoPartsTxt@1000000004 : TextConst 'ENU=No parts were picked, so there is nothing to build.';
+      NoFolderTxt@1000000027 : TextConst 'ENU=Without a client this object reads the files left in %1, and there is no such folder. Put the parts there and run it again.';
+      NoFilesTxt@1000000028 : TextConst 'ENU=There are no files in %1, so there is nothing to build.';
+      NoNameTxt@1000000029 : TextConst 'ENU=The mailing carries no name for the file, so it is named after what it holds.';
+      BadNameTxt@1000000030 : TextConst 'ENU=The name the mailing carries cannot be used as a file name, so the file is named after what it holds instead.';
       EmptyTxt@1000000005 : TextConst 'ENU=The picked files carry no payload at all. Either they are not parts of a mailing, or every payload line was lost on the way.';
       LengthTxt@1000000006 : TextConst 'ENU=Payload length %1 is not a multiple of four, so this is not a whole base64 document. A part is missing or arrived truncated.';
       CharsTxt@1000000007 : TextConst 'ENU=The payload carries characters that base64 cannot hold. A part arrived damaged, or an editor reflowed it.';
@@ -31,7 +35,7 @@ OBJECT Codeunit 110207 AL Profiler Package Unpacker
       NoOrderTxt@1000000010 : TextConst 'ENU=The parts carry no numbers, so they were joined in the order they were picked. If the result does not open, run again and pick them in order.';
       ByOrderTxt@1000000011 : TextConst 'ENU=Parts read: %1, joined by their own numbers.';
       AsPickedTxt@1000000012 : TextConst 'ENU=Parts read: %1, joined in the order they were picked.';
-      MadeTxt@1000000013 : TextConst 'ENU=File: %1 bytes, looks like %2.';
+      MadeTxt@1000000013 : TextConst 'ENU=%1: %2 bytes, looks like %3.';
       SavedTxt@1000000014 : TextConst 'ENU=Saved on this machine under the name you chose. Nothing was unpacked and nothing was left on the server.';
       NotSavedTxt@1000000015 : TextConst 'ENU=The save dialog was cancelled, so the file stayed on the server:\%1\Nothing was deleted. Run the codeunit again and pick the same parts for another save dialog.';
       StoppedTxt@1000000016 : TextConst 'ENU=Nothing was built. Nothing was left on the server.';
@@ -56,6 +60,7 @@ OBJECT Codeunit 110207 AL Profiler Package Unpacker
       OutPath@1000000007 : Text;
       ClientName@1000000008 : Text;
       Extension@1000000009 : Text;
+      SaveExt@1000000016 : Text;
       Parts@1000000010 : Integer;
       Index@1000000011 : Integer;
       OutSize@1000000012 : Integer;
@@ -77,10 +82,13 @@ OBJECT Codeunit 110207 AL Profiler Package Unpacker
       IF GUIALLOWED THEN
         Parts := PickParts(PartName)
       ELSE
-        Parts := ScanFolder(PartName);
+        Parts := ScanFolder(PartName,Report);
 
       IF Parts = 0 THEN BEGIN
-        AddLine(Report,NoPartsTxt);
+        // Without a client the folder has said its piece already, and named itself while
+        // doing it; with one, the person cancelled the dialog and knows what they did.
+        IF GUIALLOWED THEN
+          AddLine(Report,NoPartsTxt);
         Finish(Report,PartName,Parts,'');
         EXIT;
       END;
@@ -140,22 +148,35 @@ OBJECT Codeunit 110207 AL Profiler Package Unpacker
       // kind of mailing; there is no reason for that - base64 does not care what is
       // inside, and neither should this object.
       Extension := ExtensionOf(Flat);
-      OutPath := TEMPORARYPATH + 'LineProfilerPayload.' + Extension;
+
+      // The name is not in the payload - base64 carries bytes, not names - so it travels
+      // beside it on a line of its own, and is checked before it becomes a path. Without
+      // one the file is named after what it holds: a tool that unpacks anything has no
+      // business naming every payload after the product that happened to mail it.
+      ClientName := NameOf(PartName,Parts,Report);
+      IF ClientName = '' THEN BEGIN
+        ClientName := 'payload.' + Extension;
+        AddLine(Report,NoNameTxt);
+      END;
+      SaveExt := ExtOf(ClientName);
+      IF SaveExt = '' THEN
+        SaveExt := Extension;
+
+      OutPath := TEMPORARYPATH + ClientName;
       IF EXISTS(OutPath) THEN
         ERASE(OutPath);
       FileIo.WriteAllBytes(OutPath,Convert.FromBase64String(Flat));
       OutSize := SizeOf(OutPath);
-      AddLine(Report,STRSUBSTNO(MadeTxt,OutSize,KindOf(Extension)));
+      AddLine(Report,STRSUBSTNO(MadeTxt,ClientName,OutSize,KindOf(Extension)));
 
       IF NOT GUIALLOWED THEN BEGIN
         AddLine(Report,OutPath);
-        WriteReport(TEMPORARYPATH + 'LineProfilerUnpacker.log',Report);
+        WriteReport(LogPath,Report);
         CleanParts(PartName,Parts);
         EXIT;
       END;
 
-      ClientName := 'LineProfilerPayload.' + Extension;
-      IF DOWNLOAD(OutPath,SaveTitleTxt,'',STRSUBSTNO(SaveFilterTxt,Extension),ClientName) THEN BEGIN
+      IF DOWNLOAD(OutPath,SaveTitleTxt,'',STRSUBSTNO(SaveFilterTxt,SaveExt),ClientName) THEN BEGIN
         // Server temp is cleared only once the file is really in the user's hands.
         ERASE(OutPath);
         AddLine(Report,SavedTxt);
@@ -191,73 +212,186 @@ OBJECT Codeunit 110207 AL Profiler Package Unpacker
       EXIT(Parts);
     END;
 
-    LOCAL PROCEDURE ScanFolder@9(VAR PartName@1000000000 : ARRAY [60] OF Text) : Integer;
+    LOCAL PROCEDURE ScanFolder@9(VAR PartName@1000000000 : ARRAY [60] OF Text;VAR Report@1000000001 : Text) : Integer;
     VAR
-      Candidate@1000000001 : ARRAY [4] OF Text;
-      Folder@1000000002 : Text;
-      Name@1000000003 : Text;
-      Num@1000000004 : Text;
-      Index@1000000005 : Integer;
-      Parts@1000000006 : Integer;
+      DirIo@1000000002 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.Directory";
+      Found@1000000003 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Array";
+      Folder@1000000004 : Text;
+      Name@1000000005 : Text;
+      Index@1000000006 : Integer;
+      Parts@1000000007 : Integer;
     BEGIN
-      // No client, no dialogs. Reading a folder keeps the whole chain testable without a
-      // person clicking through it - and that is how this object is actually checked.
-      Candidate[1] := 'C:\LineProfiler';
-      Candidate[2] := 'C:\Temp\LineProfiler';
-      Candidate[3] := 'C:\ProgramData\LineProfiler';
-      Candidate[4] := 'C:\Temp';
-      FOR Index := 1 TO 4 DO
-        IF (Folder = '') AND EXISTS(Candidate[Index] + '\part01.txt') THEN
-          Folder := Candidate[Index];
-      IF Folder = '' THEN
+      // No client, no dialogs - and no guessing. The version before this one hunted four
+      // fixed paths for a file called part01.txt, which tied a tool that unpacks anything
+      // to one mailing and to one machine's layout, and it did it invisibly: the object
+      // asks for its files, so nobody reading that dialog would suspect a folder at all.
+      //
+      // The only folder this object knows without being told is its own. TEMPORARYPATH is
+      // the working directory the platform hands the session, and whatever lies in a
+      // subfolder of it is read - under any name, in any number. The folder is not made
+      // here: a run that finds nothing must leave the server exactly as it found it, so
+      // it names the folder in the report and stops.
+      Folder := TEMPORARYPATH + 'unpack';
+      IF NOT DirIo.Exists(Folder) THEN BEGIN
+        AddLine(Report,STRSUBSTNO(NoFolderTxt,Folder));
         EXIT(0);
-      FOR Index := 1 TO 60 DO BEGIN
-        Num := FORMAT(Index);
-        IF STRLEN(Num) = 1 THEN
-          Num := '0' + Num;
-        Name := Folder + '\part' + Num + '.txt';
-        IF EXISTS(Name) THEN BEGIN
+      END;
+      Found := DirIo.GetFiles(Folder);
+      FOR Index := 1 TO Found.GetLength(0) DO
+        IF Parts < 60 THEN BEGIN
+          EVALUATE(Name,Found.GetValue(Index - 1));
           Parts := Parts + 1;
           PartName[Parts] := Name;
         END;
-      END;
+      IF Parts = 0 THEN
+        AddLine(Report,STRSUBSTNO(NoFilesTxt,Folder));
+      SortNames(PartName,Parts);
       EXIT(Parts);
+    END;
+
+    LOCAL PROCEDURE SortNames@19(VAR PartName@1000000000 : ARRAY [60] OF Text;Parts@1000000001 : Integer);
+    VAR
+      Swap@1000000002 : Text;
+      Outer@1000000003 : Integer;
+      Inner@1000000004 : Integer;
+      Best@1000000005 : Integer;
+    BEGIN
+      // By name, so that reading the same folder twice gives the same order twice. Parts
+      // that carry their number are put in order by it further on; this is for the ones
+      // that do not, where the order they were read in is the only order there is.
+      FOR Outer := 1 TO Parts - 1 DO BEGIN
+        Best := Outer;
+        FOR Inner := Outer + 1 TO Parts DO
+          IF PartName[Inner] < PartName[Best] THEN
+            Best := Inner;
+        IF Best <> Outer THEN BEGIN
+          Swap := PartName[Outer];
+          PartName[Outer] := PartName[Best];
+          PartName[Best] := Swap;
+        END;
+      END;
+    END;
+
+    LOCAL PROCEDURE HeadValue@16(Name@1000000000 : Text;Marker@1000000001 : Text) : Text;
+    VAR
+      PartFile@1000000002 : File;
+      Ins@1000000003 : InStream;
+      Line@1000000004 : Text;
+      Value@1000000005 : Text;
+      Seen@1000000006 : Integer;
+      Len@1000000007 : Integer;
+    BEGIN
+      // Both things a part can say about itself - which part it is, and what the file is
+      // called - are said the same way: a line of plain ASCII near the top. The header
+      // around them is written in the language of whoever will read it, and this object
+      // is ASCII on purpose, so these lines are the only ones ever read for meaning.
+      IF NOT EXISTS(Name) THEN
+        EXIT('');
+      Len := STRLEN(Marker);
+      PartFile.TEXTMODE(TRUE);
+      PartFile.OPEN(Name);
+      PartFile.CREATEINSTREAM(Ins);
+      WHILE (Value = '') AND (Seen < 60) AND NOT Ins.EOS DO BEGIN
+        Ins.READTEXT(Line);
+        Seen := Seen + 1;
+        IF (STRLEN(Line) > Len) AND (COPYSTR(Line,1,Len) = Marker) THEN
+          Value := DELCHR(COPYSTR(Line,Len + 1),'<>',' ');
+      END;
+      PartFile.CLOSE;
+      EXIT(Value);
     END;
 
     LOCAL PROCEDURE SlotOf@5(Name@1000000000 : Text) : Integer;
     VAR
-      PartFile@1000000001 : File;
-      Ins@1000000002 : InStream;
-      Line@1000000003 : Text;
-      Num@1000000004 : Text;
-      Slot@1000000005 : Integer;
-      Seen@1000000006 : Integer;
-      Space@1000000007 : Integer;
+      Num@1000000001 : Text;
+      Slot@1000000002 : Integer;
+      Space@1000000003 : Integer;
     BEGIN
-      // The number of the part, taken from the part itself. The human header is written
-      // in the language of the reader and this object is plain ASCII on purpose, so the
-      // packer puts a separate ASCII line in - and only that line is read here.
-      IF NOT EXISTS(Name) THEN
+      Num := HeadValue(Name,'#PART ');
+      Space := STRPOS(Num,' ');
+      IF Space > 1 THEN
+        Num := COPYSTR(Num,1,Space - 1);
+      IF NOT EVALUATE(Slot,Num) THEN
         EXIT(0);
-      PartFile.TEXTMODE(TRUE);
-      PartFile.OPEN(Name);
-      PartFile.CREATEINSTREAM(Ins);
-      WHILE (Slot = 0) AND (Seen < 60) AND NOT Ins.EOS DO BEGIN
-        Ins.READTEXT(Line);
-        Seen := Seen + 1;
-        IF COPYSTR(Line,1,6) = '#PART ' THEN BEGIN
-          Num := COPYSTR(Line,7);
-          Space := STRPOS(Num,' ');
-          IF Space > 1 THEN
-            Num := COPYSTR(Num,1,Space - 1);
-          IF NOT EVALUATE(Slot,Num) THEN
-            Slot := 0;
-        END;
-      END;
-      PartFile.CLOSE;
       IF (Slot < 1) OR (Slot > 60) THEN
         EXIT(0);
       EXIT(Slot);
+    END;
+
+    LOCAL PROCEDURE NameOf@17(VAR PartName@1000000000 : ARRAY [60] OF Text;Parts@1000000001 : Integer;VAR Report@1000000002 : Text) : Text;
+    VAR
+      Raw@1000000003 : Text;
+      Safe@1000000004 : Text;
+      Index@1000000005 : Integer;
+    BEGIN
+      // The first part that names the file names it for all of them. Parts of one mailing
+      // carry one name; if they disagree the mailing was built wrong, and taking the first
+      // is no worse than any other answer and needs no rule to explain it.
+      FOR Index := 1 TO Parts DO
+        IF Raw = '' THEN
+          Raw := HeadValue(PartName[Index],'#NAME ');
+      IF Raw = '' THEN
+        EXIT('');
+      Safe := SafeName(Raw);
+      IF Safe = '' THEN
+        AddLine(Report,BadNameTxt);
+      EXIT(Safe);
+    END;
+
+    LOCAL PROCEDURE SafeName@18(Value@1000000000 : Text) : Text;
+    VAR
+      Regex@1000000001 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.RegularExpressions.Regex";
+      Base@1000000002 : Text;
+      Cut@1000000003 : Integer;
+    BEGIN
+      // This name arrived inside a text file from outside, and it is about to be joined to
+      // a path on the server. So it has to be a bare, dull file name already - it is not
+      // cut down to one. The alphabet below holds no separator, no colon and no letter
+      // this object cannot spell, and a name that does not match it is simply not used:
+      // the file is named after what it holds instead, and the report says so.
+      //
+      // Repairing such a name is the tempting mistake. It looks harmless - take the last
+      // piece and go on - but it is the one place where this object could be talked into
+      // writing somewhere other than its own temp, and no mailing has ever needed a path
+      // inside a name. A rule that refuses can be read in one line; one that repairs has
+      // to be argued about.
+      Value := DELCHR(Value,'<>',' ');
+      IF (Value = '') OR (STRLEN(Value) > 80) THEN
+        EXIT('');
+      // A leading dot is how '..' arrives, and it hides the file on the way out.
+      IF COPYSTR(Value,1,1) = '.' THEN
+        EXIT('');
+      IF NOT Regex.IsMatch(Value,'^[A-Za-z0-9._ -]+$') THEN
+        EXIT('');
+      Base := Value;
+      Cut := STRPOS(Base,'.');
+      IF Cut > 1 THEN
+        Base := COPYSTR(Base,1,Cut - 1);
+      // Names Windows hands to a device instead of to a file: a payload written to one of
+      // these disappears without a word, and the run would report a success.
+      CASE UPPERCASE(Base) OF
+        'CON','PRN','AUX','NUL','COM1','COM2','COM3','COM4','COM5','COM6','COM7','COM8','COM9',
+        'LPT1','LPT2','LPT3','LPT4','LPT5','LPT6','LPT7','LPT8','LPT9':
+          EXIT('');
+      END;
+      EXIT(Value);
+    END;
+
+    LOCAL PROCEDURE ExtOf@21(Name@1000000000 : Text) : Text;
+    VAR
+      Rest@1000000001 : Text;
+      Cut@1000000002 : Integer;
+    BEGIN
+      // What stands after the last dot, and nothing at all when there is no dot.
+      Rest := Name;
+      Cut := STRPOS(Rest,'.');
+      WHILE Cut > 0 DO BEGIN
+        Rest := COPYSTR(Rest,Cut + 1);
+        Cut := STRPOS(Rest,'.');
+      END;
+      IF Rest = Name THEN
+        EXIT('');
+      EXIT(Rest);
     END;
 
     LOCAL PROCEDURE SortParts@11(VAR PartName@1000000000 : ARRAY [60] OF Text;VAR PartSlot@1000000001 : ARRAY [60] OF Integer;Parts@1000000002 : Integer) : Integer;
@@ -462,7 +596,15 @@ OBJECT Codeunit 110207 AL Profiler Package Unpacker
       IF GUIALLOWED THEN
         MESSAGE(Report)
       ELSE
-        WriteReport(TEMPORARYPATH + 'LineProfilerUnpacker.log',Report);
+        WriteReport(LogPath,Report);
+    END;
+
+    LOCAL PROCEDURE LogPath@20() : Text;
+    BEGIN
+      // Without a client there is nowhere to show a message, so the report is left beside
+      // the file it describes - in the object's own working folder, under a name that says
+      // what wrote it and not what it happened to be carrying that day.
+      EXIT(TEMPORARYPATH + 'unpacker.log');
     END;
 
     LOCAL PROCEDURE WriteReport@10(Path@1000000000 : Text;Report@1000000001 : Text);
@@ -496,6 +638,8 @@ OBJECT Codeunit 110207 AL Profiler Package Unpacker
       DD 19.08.2026 LineProfiler No ERROR left anywhere: every refusal closes its files, clears the temp and reports once. ERROR mid-read left a file handle on the service and the next run stopped on it.
       DD 19.08.2026 LineProfiler Any file, not only an archive: the kind is read off the payload and used for the name. Plain base64 without marks is accepted too.
       DD 19.08.2026 LineProfiler Parts are joined by the number they carry, not by the order they were picked; base64 in the wrong order decodes into rubbish without a word.
+      DD 19.08.2026 LineProfiler The file keeps the name the mailing gives it on a #NAME line, checked before it is used as a path; without one it is named after what it holds.
+      DD 19.08.2026 LineProfiler Nothing of one mailing left inside: with no client it reads whatever lies in a folder of its own temp, instead of hunting fixed paths for part01.txt.
       Plain ASCII on purpose - the object travels as a mail body, and any encoding must do.
     }
     END.
