@@ -720,6 +720,10 @@ function Get-AlStructure {
                       Loops (Kind, StartLine, EndLine, Depth), Withs (Target, StartLine, EndLine).
           Lines     — на каждую строку кода: LineNo, Function, LoopDepth,
                       LoopKind/LoopStart/LoopEnd (ближайший объемлющий цикл), WithVar.
+                      LoopDepth — сколько раз строка исполняется за один проход
+                      функции, а не сколько скобок цикла её окружает: заголовок
+                      многострочного FOR считается ВНЕ своего цикла, потому что его
+                      граница вычисляется один раз (см. код ниже).
         При Reliable=false у функции циклы могут быть неполными — правила должны
         понижать уверенность подсказок по такой функции.
     #>
@@ -799,10 +803,19 @@ function Get-AlStructure {
             if ($row.Kind -ne 'Code') { continue }
             $depth = 0; $inner = $null
             foreach ($lp in $loops) {
-                if ($l -ge $lp.StartLine -and $l -le $lp.EndLine) {
-                    $depth++
-                    if ($null -eq $inner -or $lp.StartLine -gt $inner.StartLine) { $inner = $lp }
-                }
+                if ($l -lt $lp.StartLine -or $l -gt $lp.EndLine) { continue }
+                # Заголовок FOR исполняется ОДИН раз на вход в цикл: и начальное
+                # значение, и граница считаются до первой итерации. Поэтому строка
+                # 'FOR i := 1 TO Cust.COUNT DO' лежит вне СВОЕГО цикла - но внутри
+                # объемлющих: тот же FOR внутри REPEAT пересчитывает границу на
+                # каждой итерации внешнего. У WHILE и UNTIL наоборот - выражение
+                # проверяется каждую итерацию, и они внутри своего цикла.
+                # Однострочный FOR ('FOR i := 1 TO N DO Item.GET(i);') исключения не
+                # получает: тело стоит на той же строке, и по строке их не различить,
+                # а пропустить настоящий N+1 хуже, чем назвать лишний.
+                if ($lp.Kind -eq 'FOR' -and $l -eq $lp.StartLine -and $lp.EndLine -gt $lp.StartLine) { continue }
+                $depth++
+                if ($null -eq $inner -or $lp.StartLine -gt $inner.StartLine) { $inner = $lp }
             }
             $withVar = ''
             $innerW = $null

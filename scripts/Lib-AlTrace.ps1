@@ -1207,6 +1207,15 @@ function Get-AlRunSummary {
         вид потерь — переполнение канала — в RecordId не виден вовсе и ловится
         сборщиком по размеру файла журнала.
 
+        Нумерация есть НЕ ВСЕГДА. Это свойство канала, а не наше: у записей `.etl`
+        (режим Full — основной) EventRecord.RecordId пуст, номера записи там просто
+        нет, и колонка в events.tsv выходит пустой. У `.evtx` (режим Lite читает
+        Application) номер есть. Раньше сводка в обоих случаях печатала «Потеряно: 0»
+        — утверждение, которого данные не подтверждают. Теперь при отсутствии
+        нумерации проверка объявляется НЕ ПРОВЕДЁННОЙ; для `.etl` потери ловит
+        сборщик по счётчику потерянных буферов ядра. Частичная нумерация тоже не
+        считается: у неё «разрыв» получался бы на каждом ненумерованном событии.
+
         ВАЖНО: -Events подавать ЦЕЛИКОМ, без фильтра по сессии. Нумерация записей
         сквозная по каналу, поэтому на отфильтрованном наборе разрывы будут ложными
         и прогон объявится невалидным на ровном месте. Метрики времени при этом можно
@@ -1253,9 +1262,14 @@ function Get-AlRunSummary {
 
     $wall = 0L
     if ($tMax -ge $tMin) { $wall = $tMax - $tMin }
-    $lost = 0L
-    if ($rCnt -gt 0 -and $rMax -ge $rMin) { $lost = ($rMax - $rMin + 1) - $rCnt }
-    if ($lost -lt 0) { $lost = 0L }
+    # Считать разрыв можно, только если пронумерованы ВСЕ события: на частично
+    # пронумерованном наборе каждое событие без номера выглядело бы дырой.
+    $lost        = 0L
+    $lossChecked = ($n -gt 0 -and $rCnt -eq $n -and $rMax -ge $rMin)
+    if ($lossChecked) {
+        $lost = ($rMax - $rMin + 1) - $rCnt
+        if ($lost -lt 0) { $lost = 0L }
+    }
 
     $root = 0L; $self = 0L; $sqlT = 0L; $sqlN = 0L; $depth = 0; $lines = 0
     if ($MeasureStats) {
@@ -1285,6 +1299,20 @@ function Get-AlRunSummary {
     if ($lost -gt 0) {
         if ($hasStmt) { [void]$blockers.Add(('разрыв нумерации записей канала: {0:N0}' -f $lost)) }
         else { [void]$warnings.Add(('разрыв нумерации записей канала: {0:N0} (журнал общий — не показатель потерь)' -f $lost)) }
+    }
+    # Отсутствие нумерации - не потеря и не норма, а непроверенное место: молчать
+    # о нём нельзя, объявлять прогон невалидным - тем более (у .etl так всегда).
+    if (-not $lossChecked -and $n -gt 0) {
+        if ($rCnt -eq 0) {
+            [void]$warnings.Add('нумерации записей канала нет: потери по разрыву не проверялись ' +
+                                '(в .etl её не бывает — переполнение канала ловит сборщик по счётчику ядра)')
+        }
+        else {
+            # лишние скобки не для красоты: в аргументе метода запятая разделяет
+            # АРГУМЕНТЫ, и без них $n уходил вторым параметром .Add()
+            [void]$warnings.Add((('нумерация записей канала есть не у всех событий ({0:N0} из {1:N0}): ' +
+                                  'потери по разрыву не проверялись') -f $rCnt, $n))
+        }
     }
     if ($root -gt 0 -and $accounted -lt $MinAccountedPct) {
         [void]$blockers.Add(('учтено {0:N1} % измеренного времени при пороге {1:N0} %' -f $accounted, $MinAccountedPct))
@@ -1326,6 +1354,8 @@ function Get-AlRunSummary {
         AccountedPct = [math]::Round($accounted, 2)
         CoveragePct  = [math]::Round($coverage, 2)
         LostEvents   = $lost
+        LossChecked  = $lossChecked
+        Numbered     = $rCnt
         MaxDepth     = $depth
         Lines        = $lines
         IsValid      = ($blockers.Count -eq 0)
@@ -1358,7 +1388,10 @@ function Write-AlRunSummary {
         $Summary.WallMs, $Summary.MeasuredMs, $Summary.SelfMs, $Summary.SqlMs)
     Write-Host ('Учтено:    {0:N2} % измеренного времени (покрытие wall-clock {1:N2} %)' -f
         $Summary.AccountedPct, $Summary.CoveragePct)
-    Write-Host ('Потеряно:  {0:N0}' -f $Summary.LostEvents)
+    if ($Summary.LossChecked) { Write-Host ('Потеряно:  {0:N0}' -f $Summary.LostEvents) }
+    else {
+        Write-Host 'Потеряно:  не проверялось — у записей нет нумерации канала' -ForegroundColor DarkYellow
+    }
     foreach ($w in $Summary.Warnings) { Write-Host ('  ! ' + $w) -ForegroundColor DarkYellow }
     if ($Summary.IsValid) { Write-Host 'Прогон:    валиден' -ForegroundColor Green }
     else {

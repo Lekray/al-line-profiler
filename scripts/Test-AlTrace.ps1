@@ -719,6 +719,48 @@ foreach ($d in @($r22ok.Dir, $r22.Dir, $r23.Dir)) {
 }
 
 # ---------------------------------------------------------------------------
+# 21. Из обзора: «Потеряно: 0» печаталось всегда - даже когда считать было не по
+#     чему. Номер записи канала есть у .evtx (режим Lite) и НЕТ у .etl (режим Full,
+#     основной): EventRecord.RecordId там пуст, колонка выходит пустой. Гейт потерь
+#     молча не работал именно в том режиме, ради которого он и заводился, а сводка
+#     утверждала обратное. Частичная нумерация была ещё хуже: каждое событие без
+#     номера считалось дырой, и прогон браковался на ровном месте.
+# ---------------------------------------------------------------------------
+function New-SumCase {
+    <#
+    .SYNOPSIS
+        Четыре события с заданными номерами записи канала.
+    #>
+    param([int64[]] $Rec)
+    $ev = @( (New-Ev -Kind Start -Ms 1),
+             (New-Ev -Kind Stmt  -Ms 2 -Line 2),
+             (New-Ev -Kind Stmt  -Ms 3 -Line 3),
+             (New-Ev -Kind Stop  -Ms 4) )
+    for ($i = 0; $i -lt $ev.Count; $i++) { $ev[$i].RecordId = $Rec[$i] }
+    return $ev
+}
+$st21 = @{ RootTicks = 100L; SelfTicks = 100L; SqlTicks = 0L; SqlCount = 0L; MaxDepth = 1; AllLines = 2 }
+
+# .etl: нумерации нет ни у одного события
+$s21a = Get-AlRunSummary -Events (New-SumCase @(0, 0, 0, 0)) -MeasureStats $st21
+Test-Value 'нет нумерации: проверка не проведена' $false $s21a.LossChecked
+Test-Value 'нет нумерации: сказано вслух'         $true  ((@($s21a.Warnings) -join ' ') -match 'нумерации записей канала нет')
+Test-Value 'нет нумерации: прогон не забракован'  $true  $s21a.IsValid
+
+# .evtx: нумерация полная, одна запись потеряна
+$s21b = Get-AlRunSummary -Events (New-SumCase @(1, 2, 4, 5)) -MeasureStats $st21
+Test-Value 'нумерация полная: проверка проведена' $true  $s21b.LossChecked
+Test-Value 'нумерация полная: разрыв найден'      1L     $s21b.LostEvents
+Test-Value 'нумерация полная: прогон забракован'  $false $s21b.IsValid
+
+# смешанный набор: номер есть не у всех - считать нечего, но и браковать не за что
+$s21c = Get-AlRunSummary -Events (New-SumCase @(1, 2, 0, 4)) -MeasureStats $st21
+Test-Value 'нумерация частичная: проверка не проведена' $false $s21c.LossChecked
+Test-Value 'нумерация частичная: ложного разрыва нет'   0L    $s21c.LostEvents
+Test-Value 'нумерация частичная: прогон не забракован'  $true  $s21c.IsValid
+Test-Value 'нумерация частичная: сказано вслух'         $true  ((@($s21c.Warnings) -join ' ') -match 'не у всех событий')
+
+# ---------------------------------------------------------------------------
 # вердикт
 # ---------------------------------------------------------------------------
 Write-Host ('пройдено {0} из {1}' -f $script:Passed, $script:Total)
