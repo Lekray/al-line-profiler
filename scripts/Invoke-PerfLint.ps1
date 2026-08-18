@@ -644,6 +644,15 @@ function Invoke-PlObject {
                     if ($li0 -and $li0.WithVar) { [void]$set.Add($li0.WithVar.Trim('"')) }
                 }
             }
+            # Счётчик FOR - такая же переменная итерации, как X у X.NEXT, и меняется
+            # каждый виток. В присваивания он не попадал никогда: их regex заякорен на
+            # начало строки, а строка начинается со слова FOR. Из-за этого «GET(Массив[k])
+            # в цикле FOR» проходил как инвариантный, с уверенностью «высокая».
+            elseif ($lp.Kind -eq 'FOR' -and $lp.StartLine -ge 1 -and $lp.StartLine -le $lex.Count) {
+                $uf = $lex[$lp.StartLine - 1].Clean
+                $mf = [regex]::Match($uf, '(?<![\w".])FOR\s+(?<v>"[^"]+"|[A-Za-z_]\w*)(?:\s*\[[^\]]*\])?\s*:=')
+                if ($mf.Success) { [void]$set.Add($mf.Groups['v'].Value.Trim('"')) }
+            }
             $loopIter[('{0}|{1}' -f $fn.Name, $lp.StartLine)] = $set
         }
     }
@@ -901,7 +910,20 @@ function Invoke-PlObject {
                     if (Test-PlTempSkip $vi $met $ln) { break }
                     # инвариантность аргументов относительно объемлющих циклов
                     $argTxt = Get-PlCallArgText $rows $ln $argVar 'GET' $ix
-                    $variant = $false
+                    # Инвариантность ДОКАЗЫВАЕТСЯ, а не предполагается. Раньше было
+                    # наоборот: «меняется» ставилось только по переменной итерации
+                    # REPEAT и по явному присваиванию в теле цикла, а всё остальное
+                    # молча объявлялось инвариантным - и с уверенностью «высокая».
+                    # Под это попадали три обычных случая:
+                    #   1) аргумент - голое поле перебираемой записи (WITH или датаитем):
+                    #      меняется с каждой записью, а корнем стоит имя поля;
+                    #   2) счётчик FOR (см. выше);
+                    #   3) цикла в тексте нет вовсе - триггер платформы на каждой записи
+                    #      либо цикл, видный только по числу попаданий в замере. Границ
+                    #      у такого цикла нет, и доказывать инвариантность нечем.
+                    # Совет «вынести до цикла» в каждом из них ЛОМАЕТ рабочий код:
+                    # разработчик получает одну учётную группу на все записи.
+                    $variant = $true
                     if ($null -ne $argTxt -and $argTxt.Trim()) {
                         $argRoots = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
                         $prevDot = $false
@@ -916,25 +938,37 @@ function Invoke-PlObject {
                         }
                         $fnRec = $null
                         foreach ($fn0 in $struct.Functions) { if ($fn0.Name -eq $func) { $fnRec = $fn0; break } }
+                        $encl = New-Object System.Collections.ArrayList
                         if ($fnRec) {
                             foreach ($lp in $fnRec.Loops) {
-                                if ($ln -lt $lp.StartLine -or $ln -gt $lp.EndLine) { continue }
-                                $itKey = '{0}|{1}' -f $func, $lp.StartLine
-                                if ($loopIter.ContainsKey($itKey)) {
-                                    foreach ($iv in $loopIter[$itKey]) { if ($argRoots.Contains($iv)) { $variant = $true; break } }
-                                }
-                                if ($variant) { break }
-                                if ($assigns.ContainsKey($func)) {
-                                    foreach ($as in $assigns[$func]) {
-                                        if ($as.Line -ge $lp.StartLine -and $as.Line -le $lp.EndLine -and $argRoots.Contains($as.Root)) { $variant = $true; break }
-                                    }
-                                }
-                                if ($variant) { break }
+                                if ($ln -ge $lp.StartLine -and $ln -le $lp.EndLine) { [void]$encl.Add($lp) }
                             }
                         }
-                        else { $variant = $true }
+                        # Судим только внутри цикла, который есть в ТЕКСТЕ и разобран.
+                        if ($encl.Count -gt 0) {
+                            $proven = $true
+                            foreach ($root in $argRoots) {
+                                # Корень, не разрешившийся в символах, - это поле записи
+                                # (WITH-цели или датаитема), а не переменная. Оно меняется
+                                # с каждой записью, и константным считать его нельзя.
+                                $ri = Resolve-PlVar $root $func $symIdx $ObjType $ObjId
+                                if (-not $ri.Known) { $proven = $false; break }
+                                $changed = $false
+                                foreach ($lp in $encl) {
+                                    $itKey = '{0}|{1}' -f $func, $lp.StartLine
+                                    if ($loopIter.ContainsKey($itKey) -and $loopIter[$itKey].Contains($root)) { $changed = $true; break }
+                                    if ($assigns.ContainsKey($func)) {
+                                        foreach ($as in $assigns[$func]) {
+                                            if ($as.Line -ge $lp.StartLine -and $as.Line -le $lp.EndLine -and $as.Root -eq $root) { $changed = $true; break }
+                                        }
+                                    }
+                                    if ($changed) { break }
+                                }
+                                if ($changed) { $proven = $false; break }
+                            }
+                            $variant = -not $proven
+                        }
                     }
-                    else { $variant = $true }   # аргументы не разобраны — не утверждаем инвариантность
                     if (-not $variant) {
                         Add-PlFinding -Ctx $ctx -Line $ln -Rule '111' -Func $func -Msg (
                             ('GET по {0} в цикле: аргументы не меняются между итерациями — значение инвариантно, вынести до цикла' -f $var)) -Conf 'высокая'
@@ -1154,8 +1188,11 @@ function Invoke-PlObject {
         }
     }
 
-    # 301: советник по ключам (делегирование Lib-KeyAdvisor)
-    foreach ($c in $chains) {
+    # 301: советник по ключам (делегирование Lib-KeyAdvisor).
+    # Нет справочников - правило молчит; остальные от него не зависят.
+    $chains301 = $chains
+    if (-not $script:PlKaReady) { $chains301 = @() }
+    foreach ($c in $chains301) {
         if ($consumerOps -notcontains $c.ConsumerOp) { continue }
         if (-not $c.Resolved -or $c.TableNo -le 0) { continue }
         if ($c.Temporary) {
@@ -1389,7 +1426,20 @@ $script:PlRuleNames = @{
 $swTotal = [System.Diagnostics.Stopwatch]::StartNew()
 $srcRoot = Get-AlSourceRoot $SourceRoot
 $baseDir = Get-AlBaseRoot $BaseRoot
-Initialize-KeyAdvisor
+
+# Справочники ключей нужны ОДНОМУ правилу из полутора десятков - 301. Их
+# отсутствие роняло весь прогон на первой строке: на машине без выгрузки объектов
+# установки линтер не работал вовсе, хотя остальным правилам справочники не нужны
+# вообще. Теперь 301 молчит, а прочие идут - и линтер проверяем на чистой копии.
+$script:PlKaReady = $true
+try { Initialize-KeyAdvisor }
+catch {
+    $script:PlKaReady = $false
+    if (-not $Quiet) {
+        Write-Warning ('Справочники ключей не загружены: {0}' -f $_.Exception.Message)
+        Write-Warning 'Правило 301 (советник по ключам) в этом прогоне молчит, остальные работают.'
+    }
+}
 
 $metricsAll = $null
 if ($MetricsFile) {
