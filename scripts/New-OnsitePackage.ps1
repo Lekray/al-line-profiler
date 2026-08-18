@@ -11,11 +11,24 @@
     Приёмник кладётся как ЗАПАСНОЙ вариант: на месте его пересобирают шагом 3, потому
     что ссылка идёт на ту TraceEvent.dll, что лежит там, а её версия своя.
 
+    Рядом с манифестом кладётся CHANGES.txt - что изменилось относительно ПРОШЛОГО
+    пакета. Согласующему иначе приходится сличать манифесты глазами, а пакет уходит
+    целиком и всегда: частичная доставка в изолированный контур - это установка,
+    собранная из двух источников, и разбираться, что там от какой версии, будет уже
+    человек на объекте.
+
+.PARAMETER Previous
+    Прошлый пакет, с которым сравнивать. По умолчанию берётся самый свежий
+    LineProfiler-onsite-*.zip в выходном каталоге, кроме собираемого сейчас.
+
+.PARAMETER NoChanges
+    Не сравнивать с прошлым пакетом и не класть CHANGES.txt.
+
 .EXAMPLE
     pwsh scripts/New-OnsitePackage.ps1
 #>
 [CmdletBinding()]
-param([string]$OutDir)
+param([string]$OutDir, [string]$Previous, [switch]$NoChanges)
 
 $ErrorActionPreference = 'Stop'
 
@@ -85,6 +98,100 @@ Step 'манифест записан'
 
 if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Path $OutDir | Out-Null }
 $zip = Join-Path $OutDir ('LineProfiler-onsite-' + (Get-Date -Format 'yyyyMMdd') + '.zip')
+
+# 3. Что изменилось с прошлого пакета. Сравниваются СОДЕРЖИМЫЕ файлов по хэшу, а не
+#    даты: дата меняется от пересборки cp866 и ничего не значит. MANIFEST.txt и сам
+#    CHANGES.txt из сравнения исключены - они пересобираются каждый раз и в списке
+#    изменений стояли бы всегда, обесценивая его.
+if (-not $NoChanges) {
+    if (-not $Previous) {
+        $cand = @(Get-ChildItem (Join-Path $OutDir 'LineProfiler-onsite-*.zip') -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -ne $zip } | Sort-Object Name -Descending)
+        if ($cand.Count -gt 0) { $Previous = $cand[0].FullName }
+    }
+    if (-not $Previous -or -not (Test-Path -LiteralPath $Previous)) {
+        Step 'прошлого пакета рядом нет - CHANGES.txt не кладётся'
+    }
+    else {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $prevMap = @{}
+        $za = [IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $Previous).Path)
+        try {
+            foreach ($e in $za.Entries) {
+                if (-not $e.Name) { continue }                       # каталог
+                $s = $e.Open()
+                try {
+                    $ms = New-Object System.IO.MemoryStream
+                    $s.CopyTo($ms)
+                    $sha = [System.Security.Cryptography.SHA256]::Create()
+                    try { $h = ([BitConverter]::ToString($sha.ComputeHash($ms.ToArray()))).Replace('-','') }
+                    finally { $sha.Dispose() }
+                    $prevMap[$e.FullName.Replace('/', '\')] = @{ Size = $e.Length; Hash = $h }
+                }
+                finally { $s.Dispose() }
+            }
+        }
+        finally { $za.Dispose() }
+
+        $skip = @('MANIFEST.txt', 'CHANGES.txt')
+        $now  = @{}
+        foreach ($f in (Get-ChildItem $stage -Recurse -File)) {
+            $rel = $f.FullName.Substring($stage.Length + 1)
+            if ($skip -contains $rel) { continue }
+            $now[$rel] = @{ Size = $f.Length; Hash = (Get-FileHash $f.FullName -Algorithm SHA256).Hash }
+        }
+        foreach ($k in @($prevMap.Keys)) { if ($skip -contains $k) { $prevMap.Remove($k) } }
+
+        $added = @(); $changed = @(); $removed = @(); $same = 0
+        foreach ($k in ($now.Keys | Sort-Object)) {
+            if (-not $prevMap.ContainsKey($k)) { $added += $k }
+            elseif ($prevMap[$k].Hash -ne $now[$k].Hash) { $changed += $k }
+            else { $same++ }
+        }
+        foreach ($k in ($prevMap.Keys | Sort-Object)) { if (-not $now.ContainsKey($k)) { $removed += $k } }
+
+        $ch = @(
+            'Что изменилось в пакете',
+            '',
+            ('Этот пакет:   {0}, собран {1}, коммит {2}' -f (Split-Path $zip -Leaf), $stamp, $commit),
+            ('Сравнение с:  {0}' -f (Split-Path $Previous -Leaf)),
+            '',
+            'Сверялось содержимое файлов по SHA-256, а не даты: дата меняется от',
+            'пересборки и сама по себе ничего не значит. MANIFEST.txt и этот файл',
+            'в сравнение не входят - они пересобираются каждый раз.',
+            ''
+        )
+        if ($added.Count -eq 0 -and $changed.Count -eq 0 -and $removed.Count -eq 0) {
+            $ch += 'Содержимое пакета не изменилось ни одним файлом.'
+        }
+        else {
+            if ($changed.Count -gt 0) {
+                $ch += ('ИЗМЕНЕНЫ ({0}):' -f $changed.Count)
+                foreach ($k in $changed) {
+                    $ch += ('  {0,-44} {1,8} байт  {2}' -f $k, $now[$k].Size, $now[$k].Hash.Substring(0, 16))
+                    $ch += ('  {0,-44} {1,8} байт  {2}   было' -f '', $prevMap[$k].Size, $prevMap[$k].Hash.Substring(0, 16))
+                }
+                $ch += ''
+            }
+            if ($added.Count -gt 0) {
+                $ch += ('ДОБАВЛЕНЫ ({0}):' -f $added.Count)
+                foreach ($k in $added) {
+                    $ch += ('  {0,-44} {1,8} байт  {2}' -f $k, $now[$k].Size, $now[$k].Hash.Substring(0, 16))
+                }
+                $ch += ''
+            }
+            if ($removed.Count -gt 0) {
+                $ch += ('УДАЛЕНЫ ({0}):' -f $removed.Count)
+                foreach ($k in $removed) { $ch += ('  {0}' -f $k) }
+                $ch += ''
+            }
+        }
+        $ch += ('Без изменений: {0} файлов.' -f $same)
+        [IO.File]::WriteAllLines((Join-Path $stage 'CHANGES.txt'), $ch, [Text.UTF8Encoding]::new($true))
+        Step ('CHANGES.txt: изменено {0}, добавлено {1}, удалено {2}, без изменений {3}' -f
+              $changed.Count, $added.Count, $removed.Count, $same)
+    }
+}
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
 Remove-Item $stage -Recurse -Force

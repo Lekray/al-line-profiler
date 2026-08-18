@@ -2,7 +2,7 @@ OBJECT Codeunit 110207 AL Profiler Package Unpacker
 {
   OBJECT-PROPERTIES
   {
-    Date=18.08.26;
+    Date=19.08.26;
     Time=12:00:00;
     Modified=Yes;
     Version List=ALProfiler;
@@ -17,114 +17,181 @@ OBJECT Codeunit 110207 AL Profiler Package Unpacker
   CODE
   {
     VAR
-      PickTitleTxt@1000000000 : TextConst 'ENU=Pick part %1 of the package - press Cancel when there are no more';
+      PickTitleTxt@1000000000 : TextConst 'ENU=Pick part %1 - press Cancel when there are no more';
       TxtFilterTxt@1000000001 : TextConst 'ENU=Text files (*.txt)|*.txt|All files (*.*)|*.*';
-      SaveTitleTxt@1000000002 : TextConst 'ENU=Save the package archive';
-      ZipFilterTxt@1000000003 : TextConst 'ENU=Archive (*.zip)|*.zip';
-      NoPartsErr@1000000004 : TextConst 'ENU=No parts were picked, so there is nothing to build.';
-      NotAZipErr@1000000005 : TextConst 'ENU=The picked files do not add up to an archive (%1 characters of payload). Check that these really are the package parts.';
-      SavedMsg@1000000006 : TextConst 'ENU=Parts read: %1\Archive: %2 bytes\\Saved on this machine under the name you chose. Unzip it yourself - nothing else was done, and nothing was left on the server.';
-      NotSavedMsg@1000000007 : TextConst 'ENU=Parts read: %1\Archive: %2 bytes\\The save dialog was cancelled, so the archive stayed on the server:\%3\\Nothing was deleted. Run the codeunit again and pick the same parts to get another save dialog.';
-      TwoStreamsErr@1000000008 : TextConst 'ENU=%1 carries a second payload stream, which this object cannot put back together. Ask for the mailing to be built again by the current packer - it sends one stream only.';
+      SaveTitleTxt@1000000002 : TextConst 'ENU=Save the mailed file';
+      SaveFilterTxt@1000000003 : TextConst 'ENU=File (*.%1)|*.%1|All files (*.*)|*.*';
+      NoPartsTxt@1000000004 : TextConst 'ENU=No parts were picked, so there is nothing to build.';
+      EmptyTxt@1000000005 : TextConst 'ENU=The picked files carry no payload at all. Either they are not parts of a mailing, or every payload line was lost on the way.';
+      LengthTxt@1000000006 : TextConst 'ENU=Payload length %1 is not a multiple of four, so this is not a whole base64 document. A part is missing or arrived truncated.';
+      CharsTxt@1000000007 : TextConst 'ENU=The payload carries characters that base64 cannot hold. A part arrived damaged, or an editor reflowed it.';
+      ForeignTxt@1000000026 : TextConst 'ENU=%1 carries no marked payload and is not a plain base64 file either. Either it is not part of a mailing, or the mail client stripped the marks off - ask for the mailing again.';
+      TwoStreamsTxt@1000000008 : TextConst 'ENU=%1 carries a second payload stream under its own mark. Two streams cannot be joined back - ask for the mailing to be built again by the current packer, it sends one stream only.';
+      DoubleTxt@1000000009 : TextConst 'ENU=The same part was picked twice. Nothing was built - run again and pick each part once.';
+      NoOrderTxt@1000000010 : TextConst 'ENU=The parts carry no numbers, so they were joined in the order they were picked. If the result does not open, run again and pick them in order.';
+      ByOrderTxt@1000000011 : TextConst 'ENU=Parts read: %1, joined by their own numbers.';
+      AsPickedTxt@1000000012 : TextConst 'ENU=Parts read: %1, joined in the order they were picked.';
+      MadeTxt@1000000013 : TextConst 'ENU=File: %1 bytes, looks like %2.';
+      SavedTxt@1000000014 : TextConst 'ENU=Saved on this machine under the name you chose. Nothing was unpacked and nothing was left on the server.';
+      NotSavedTxt@1000000015 : TextConst 'ENU=The save dialog was cancelled, so the file stayed on the server:\%1\Nothing was deleted. Run the codeunit again and pick the same parts for another save dialog.';
+      StoppedTxt@1000000016 : TextConst 'ENU=Nothing was built. Nothing was left on the server.';
+      ZipNameTxt@1000000018 : TextConst 'ENU=zip archive';
+      DllNameTxt@1000000019 : TextConst 'ENU=Windows assembly';
+      PdfNameTxt@1000000020 : TextConst 'ENU=PDF document';
+      PngNameTxt@1000000021 : TextConst 'ENU=PNG image';
+      JpgNameTxt@1000000022 : TextConst 'ENU=JPEG image';
+      OleNameTxt@1000000023 : TextConst 'ENU=Office document';
+      TxtNameTxt@1000000024 : TextConst 'ENU=plain text';
+      BinNameTxt@1000000025 : TextConst 'ENU=file of unknown kind';
 
     LOCAL PROCEDURE Unpack@1();
     VAR
       Payload@1000000000 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";
       Convert@1000000001 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Convert";
       FileIo@1000000002 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.File";
-      ServerName@1000000003 : Text;
-      ClientName@1000000004 : Text;
-      ZipPath@1000000005 : Text;
-      Parts@1000000006 : Integer;
-      Index@1000000007 : Integer;
-      ZipSize@1000000008 : Integer;
-      Picking@1000000009 : Boolean;
-      Saved@1000000010 : Boolean;
+      PartName@1000000003 : ARRAY [60] OF Text;
+      PartSlot@1000000004 : ARRAY [60] OF Integer;
+      Report@1000000005 : Text;
+      Flat@1000000006 : Text;
+      OutPath@1000000007 : Text;
+      ClientName@1000000008 : Text;
+      Extension@1000000009 : Text;
+      Parts@1000000010 : Integer;
+      Index@1000000011 : Integer;
+      OutSize@1000000012 : Integer;
+      Order@1000000013 : Integer;
+      Ordered@1000000014 : Boolean;
+      Ok@1000000015 : Boolean;
     BEGIN
-      // One job only: turn the mailed parts back into the archive and hand it over.
-      // No unzipping, no copying anywhere, no checks tied to a particular mailing - so
-      // that it works with any set of parts and cannot half-do the job.
+      // One job: turn the mailed parts back into the file they were made from, and hand
+      // it over. No unpacking, no copying anywhere, no check tied to a particular mailing.
+      //
+      // NOT A SINGLE ERROR IN THE WHOLE OBJECT, and that is the point of this version.
+      // ERROR in the middle of reading left the part file open on the service: the handle
+      // stayed until the session ended, and the next run stopped dead on the same file -
+      // which from the outside looks like the object hanging on any mistake. Every way
+      // out now goes through Finish: files closed, temp cleaned, one message with the
+      // reason. A refusal must cost the same as a success.
       Payload := Payload.StringBuilder;
 
-      IF GUIALLOWED THEN BEGIN
-        Picking := TRUE;
-        FOR Index := 1 TO 60 DO
-          IF Picking THEN BEGIN
-            ServerName := '';
-            IF NOT UPLOAD(STRSUBSTNO(PickTitleTxt,Index),'',TxtFilterTxt,'',ServerName) THEN
-              Picking := FALSE;
-            // An empty name counts as Cancel as well: a client that reports success and
-            // hands back nothing would otherwise keep the asking going for ever.
-            IF Picking AND (ServerName = '') THEN
-              Picking := FALSE;
-            IF Picking THEN BEGIN
-              Parts := Parts + 1;
-              ReadPart(ServerName,Payload);
-              ERASE(ServerName);
-            END;
-          END;
-      END ELSE
-        // No client, no dialogs. Reading a folder keeps the whole chain testable
-        // without a person clicking through it.
-        Parts := ReadFolder(Payload);
+      IF GUIALLOWED THEN
+        Parts := PickParts(PartName)
+      ELSE
+        Parts := ScanFolder(PartName);
 
-      IF Parts = 0 THEN
-        ERROR(NoPartsErr);
-
-      // The only check left, and it costs nothing: an archive always starts with the
-      // bytes PK, which in base64 is UEsD. Sizes are deliberately NOT checked - that
-      // tied the object to one mailing and broke it on every other.
-      IF COPYSTR(Payload.ToString,1,4) <> 'UEsD' THEN
-        ERROR(NotAZipErr,Payload.Length);
-
-      ZipPath := TEMPORARYPATH + 'LineProfilerPackage.zip';
-      FileIo.WriteAllBytes(ZipPath,Convert.FromBase64String(Payload.ToString));
-      ZipSize := SizeOf(ZipPath);
-
-      IF NOT GUIALLOWED THEN
+      IF Parts = 0 THEN BEGIN
+        AddLine(Report,NoPartsTxt);
+        Finish(Report,PartName,Parts,'');
         EXIT;
-
-      ClientName := 'LineProfilerPackage.zip';
-      Saved := DOWNLOAD(ZipPath,SaveTitleTxt,'',ZipFilterTxt,ClientName);
-      IF Saved THEN BEGIN
-        // Server temp is cleared only once the file is really in the user's hands.
-        ERASE(ZipPath);
-        MESSAGE(SavedMsg,Parts,ZipSize);
-      END ELSE
-        MESSAGE(NotSavedMsg,Parts,ZipSize,ZipPath);
-    END;
-
-    LOCAL PROCEDURE ReadPart@2(Name@1000000000 : Text;VAR Payload@1000000001 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder");
-    VAR
-      PartFile@1000000002 : File;
-      Ins@1000000003 : InStream;
-      Line@1000000004 : Text;
-      Mark@1000000005 : Text;
-    BEGIN
-      // Payload lines carry a mark in front. Everything else - the human header of the
-      // mail - is dropped by that one test, whatever the mail client did to it.
-      //
-      // ONE mark only, and the other one is refused outright. A mailing once carried the
-      // receiver assembly as a second stream under its own mark, and taking both marks
-      // appended two separate base64 documents into one buffer. Two archive sizes out of
-      // three then failed to decode at all; the third decoded into the archive with the
-      // assembly stuck to its tail, and said nothing about it. Better to stop and ask
-      // for the mailing to be rebuilt than to hand over something that looks right.
-      PartFile.TEXTMODE(TRUE);
-      PartFile.OPEN(Name);
-      PartFile.CREATEINSTREAM(Ins);
-      WHILE NOT Ins.EOS DO BEGIN
-        Ins.READTEXT(Line);
-        Mark := COPYSTR(Line,1,1);
-        IF Mark = '|' THEN
-          Payload.Append(COPYSTR(Line,2));
-        IF Mark = '!' THEN
-          ERROR(TwoStreamsErr,Name);
       END;
-      PartFile.CLOSE;
+
+      // Order matters and is not free: base64 of the parts glued in the wrong order is
+      // still valid base64, decodes without a word and gives rubbish. So the number is
+      // taken from the part itself when it carries one.
+      FOR Index := 1 TO Parts DO
+        PartSlot[Index] := SlotOf(PartName[Index]);
+      Order := SortParts(PartName,PartSlot,Parts);
+      IF Order = 2 THEN BEGIN
+        AddLine(Report,DoubleTxt);
+        Finish(Report,PartName,Parts,'');
+        EXIT;
+      END;
+      Ordered := (Order = 0);
+
+      Ok := TRUE;
+      FOR Index := 1 TO Parts DO
+        IF Ok THEN
+          Ok := ReadPart(PartName[Index],Payload,Report);
+      IF NOT Ok THEN BEGIN
+        Finish(Report,PartName,Parts,'');
+        EXIT;
+      END;
+
+      IF Ordered THEN
+        AddLine(Report,STRSUBSTNO(ByOrderTxt,Parts))
+      ELSE BEGIN
+        AddLine(Report,STRSUBSTNO(AsPickedTxt,Parts));
+        AddLine(Report,NoOrderTxt);
+      END;
+
+      // Checked BEFORE decoding, not after. Convert.FromBase64String throws on bad input,
+      // and a throw here would be exactly the stop this object must not make. These two
+      // tests are the whole contract of base64: the alphabet, and a length that is a
+      // multiple of four. What passes them cannot make that call throw.
+      IF Payload.Length = 0 THEN BEGIN
+        AddLine(Report,EmptyTxt);
+        Finish(Report,PartName,Parts,'');
+        EXIT;
+      END;
+      IF (Payload.Length MOD 4) <> 0 THEN BEGIN
+        AddLine(Report,STRSUBSTNO(LengthTxt,Payload.Length));
+        Finish(Report,PartName,Parts,'');
+        EXIT;
+      END;
+      Flat := Payload.ToString;
+      IF NOT LooksLikeBase64(Flat) THEN BEGIN
+        AddLine(Report,CharsTxt);
+        Finish(Report,PartName,Parts,'');
+        EXIT;
+      END;
+
+      // The kind of file is read off the payload, not demanded of it. The previous
+      // version refused anything that was not an archive, so it could carry exactly one
+      // kind of mailing; there is no reason for that - base64 does not care what is
+      // inside, and neither should this object.
+      Extension := ExtensionOf(Flat);
+      OutPath := TEMPORARYPATH + 'LineProfilerPayload.' + Extension;
+      IF EXISTS(OutPath) THEN
+        ERASE(OutPath);
+      FileIo.WriteAllBytes(OutPath,Convert.FromBase64String(Flat));
+      OutSize := SizeOf(OutPath);
+      AddLine(Report,STRSUBSTNO(MadeTxt,OutSize,KindOf(Extension)));
+
+      IF NOT GUIALLOWED THEN BEGIN
+        AddLine(Report,OutPath);
+        WriteReport(TEMPORARYPATH + 'LineProfilerUnpacker.log',Report);
+        CleanParts(PartName,Parts);
+        EXIT;
+      END;
+
+      ClientName := 'LineProfilerPayload.' + Extension;
+      IF DOWNLOAD(OutPath,SaveTitleTxt,'',STRSUBSTNO(SaveFilterTxt,Extension),ClientName) THEN BEGIN
+        // Server temp is cleared only once the file is really in the user's hands.
+        ERASE(OutPath);
+        AddLine(Report,SavedTxt);
+      END ELSE
+        AddLine(Report,STRSUBSTNO(NotSavedTxt,OutPath));
+
+      CleanParts(PartName,Parts);
+      MESSAGE(Report);
     END;
 
-    LOCAL PROCEDURE ReadFolder@3(VAR Payload@1000000000 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder") : Integer;
+    LOCAL PROCEDURE PickParts@8(VAR PartName@1000000000 : ARRAY [60] OF Text) : Integer;
+    VAR
+      ServerName@1000000001 : Text;
+      Parts@1000000002 : Integer;
+      Index@1000000003 : Integer;
+      Picking@1000000004 : Boolean;
+    BEGIN
+      Picking := TRUE;
+      FOR Index := 1 TO 60 DO
+        IF Picking THEN BEGIN
+          ServerName := '';
+          IF NOT UPLOAD(STRSUBSTNO(PickTitleTxt,Index),'',TxtFilterTxt,'',ServerName) THEN
+            Picking := FALSE;
+          // An empty name counts as Cancel as well: a client that reports success and
+          // hands back nothing would otherwise keep the asking going for ever.
+          IF Picking AND (ServerName = '') THEN
+            Picking := FALSE;
+          IF Picking THEN BEGIN
+            Parts := Parts + 1;
+            PartName[Parts] := ServerName;
+          END;
+        END;
+      EXIT(Parts);
+    END;
+
+    LOCAL PROCEDURE ScanFolder@9(VAR PartName@1000000000 : ARRAY [60] OF Text) : Integer;
     VAR
       Candidate@1000000001 : ARRAY [4] OF Text;
       Folder@1000000002 : Text;
@@ -133,6 +200,8 @@ OBJECT Codeunit 110207 AL Profiler Package Unpacker
       Index@1000000005 : Integer;
       Parts@1000000006 : Integer;
     BEGIN
+      // No client, no dialogs. Reading a folder keeps the whole chain testable without a
+      // person clicking through it - and that is how this object is actually checked.
       Candidate[1] := 'C:\LineProfiler';
       Candidate[2] := 'C:\Temp\LineProfiler';
       Candidate[3] := 'C:\ProgramData\LineProfiler';
@@ -149,10 +218,209 @@ OBJECT Codeunit 110207 AL Profiler Package Unpacker
         Name := Folder + '\part' + Num + '.txt';
         IF EXISTS(Name) THEN BEGIN
           Parts := Parts + 1;
-          ReadPart(Name,Payload);
+          PartName[Parts] := Name;
         END;
       END;
       EXIT(Parts);
+    END;
+
+    LOCAL PROCEDURE SlotOf@5(Name@1000000000 : Text) : Integer;
+    VAR
+      PartFile@1000000001 : File;
+      Ins@1000000002 : InStream;
+      Line@1000000003 : Text;
+      Num@1000000004 : Text;
+      Slot@1000000005 : Integer;
+      Seen@1000000006 : Integer;
+      Space@1000000007 : Integer;
+    BEGIN
+      // The number of the part, taken from the part itself. The human header is written
+      // in the language of the reader and this object is plain ASCII on purpose, so the
+      // packer puts a separate ASCII line in - and only that line is read here.
+      IF NOT EXISTS(Name) THEN
+        EXIT(0);
+      PartFile.TEXTMODE(TRUE);
+      PartFile.OPEN(Name);
+      PartFile.CREATEINSTREAM(Ins);
+      WHILE (Slot = 0) AND (Seen < 60) AND NOT Ins.EOS DO BEGIN
+        Ins.READTEXT(Line);
+        Seen := Seen + 1;
+        IF COPYSTR(Line,1,6) = '#PART ' THEN BEGIN
+          Num := COPYSTR(Line,7);
+          Space := STRPOS(Num,' ');
+          IF Space > 1 THEN
+            Num := COPYSTR(Num,1,Space - 1);
+          IF NOT EVALUATE(Slot,Num) THEN
+            Slot := 0;
+        END;
+      END;
+      PartFile.CLOSE;
+      IF (Slot < 1) OR (Slot > 60) THEN
+        EXIT(0);
+      EXIT(Slot);
+    END;
+
+    LOCAL PROCEDURE SortParts@11(VAR PartName@1000000000 : ARRAY [60] OF Text;VAR PartSlot@1000000001 : ARRAY [60] OF Integer;Parts@1000000002 : Integer) : Integer;
+    VAR
+      SwapName@1000000003 : Text;
+      SwapSlot@1000000004 : Integer;
+      Outer@1000000005 : Integer;
+      Inner@1000000006 : Integer;
+      Best@1000000007 : Integer;
+    BEGIN
+      // Three outcomes, not two. 0 - every part carries its number and they are now in
+      // order. 1 - the numbers are not there at all, so the order stays as picked and
+      // the report says so. 2 - the same number twice, which is a mistake a person can
+      // fix by picking again; going on would silently build the wrong file.
+      FOR Outer := 1 TO Parts DO
+        IF PartSlot[Outer] = 0 THEN
+          EXIT(1);
+      FOR Outer := 1 TO Parts - 1 DO
+        FOR Inner := Outer + 1 TO Parts DO
+          IF PartSlot[Outer] = PartSlot[Inner] THEN
+            EXIT(2);
+
+      FOR Outer := 1 TO Parts - 1 DO BEGIN
+        Best := Outer;
+        FOR Inner := Outer + 1 TO Parts DO
+          IF PartSlot[Inner] < PartSlot[Best] THEN
+            Best := Inner;
+        IF Best <> Outer THEN BEGIN
+          SwapSlot := PartSlot[Outer];
+          PartSlot[Outer] := PartSlot[Best];
+          PartSlot[Best] := SwapSlot;
+          SwapName := PartName[Outer];
+          PartName[Outer] := PartName[Best];
+          PartName[Best] := SwapName;
+        END;
+      END;
+      EXIT(0);
+    END;
+
+    LOCAL PROCEDURE ReadPart@2(Name@1000000000 : Text;VAR Payload@1000000001 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.StringBuilder";VAR Report@1000000002 : Text) : Boolean;
+    VAR
+      PartFile@1000000003 : File;
+      Ins@1000000004 : InStream;
+      Line@1000000005 : Text;
+      Trimmed@1000000006 : Text;
+      Mark@1000000007 : Text;
+      Marked@1000000008 : Integer;
+      TwoStreams@1000000009 : Boolean;
+      Foreign@1000000010 : Boolean;
+    BEGIN
+      // Two shapes of file, and the object tells them apart by itself.
+      //
+      // A mail part carries the payload behind a mark, and the human header around it is
+      // dropped by that one test, whatever the mail client did to it. A plain base64 file
+      // - what other systems produce - has no mark and no header at all, and there every
+      // line is payload. Guessing between them per line would be wrong: header words are
+      // letters too, and letters are legal base64. So the mark decides for the whole
+      // file: if there is at least one marked line, ONLY marked lines are taken.
+      IF NOT EXISTS(Name) THEN
+        EXIT(TRUE);
+
+      PartFile.TEXTMODE(TRUE);
+      PartFile.OPEN(Name);
+      PartFile.CREATEINSTREAM(Ins);
+      WHILE NOT TwoStreams AND NOT Ins.EOS DO BEGIN
+        Ins.READTEXT(Line);
+        Mark := COPYSTR(Line,1,1);
+        IF Mark = '|' THEN
+          Marked := Marked + 1;
+        // A mailing once carried the receiver assembly as a second stream under its own
+        // mark, and taking both marks appended two separate base64 documents into one
+        // buffer. Two archive sizes out of three then failed to decode at all; the third
+        // decoded into the archive with the assembly stuck to its tail and said nothing.
+        IF Mark = '!' THEN
+          TwoStreams := TRUE;
+      END;
+      PartFile.CLOSE;
+
+      IF TwoStreams THEN BEGIN
+        AddLine(Report,STRSUBSTNO(TwoStreamsTxt,Name));
+        EXIT(FALSE);
+      END;
+
+      PartFile.TEXTMODE(TRUE);
+      PartFile.OPEN(Name);
+      PartFile.CREATEINSTREAM(Ins);
+      WHILE NOT Foreign AND NOT Ins.EOS DO BEGIN
+        Ins.READTEXT(Line);
+        IF Marked > 0 THEN BEGIN
+          IF COPYSTR(Line,1,1) = '|' THEN
+            Payload.Append(COPYSTR(Line,2));
+        END ELSE BEGIN
+          // No mark anywhere means a plain base64 file, and there EVERY line is payload.
+          // No length floor: the last line of base64 is short by nature, and a floor
+          // would drop it and take four bytes off the end without a word. A line that is
+          // not base64 is not skipped either - it means this is not a payload file at
+          // all, and that is worth saying instead of quietly building rubbish.
+          Trimmed := DELCHR(Line,'<>',' ');
+          IF Trimmed <> '' THEN BEGIN
+            IF LooksLikeBase64(Trimmed) THEN
+              Payload.Append(Trimmed)
+            ELSE
+              Foreign := TRUE;
+          END;
+        END;
+      END;
+      PartFile.CLOSE;
+
+      IF Foreign THEN BEGIN
+        AddLine(Report,STRSUBSTNO(ForeignTxt,Name));
+        EXIT(FALSE);
+      END;
+      EXIT(TRUE);
+    END;
+
+    LOCAL PROCEDURE LooksLikeBase64@12(Value@1000000000 : Text) : Boolean;
+    VAR
+      Regex@1000000001 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Text.RegularExpressions.Regex";
+    BEGIN
+      // The alphabet of base64 and nothing else, with at most two pad signs at the end.
+      // Curly braces are avoided in the pattern on purpose: they are section markers in
+      // the object text, and a pattern that imports badly is worse than a longer one.
+      IF Value = '' THEN
+        EXIT(FALSE);
+      EXIT(Regex.IsMatch(Value,'^[A-Za-z0-9+/]*[=]?[=]?$'));
+    END;
+
+    LOCAL PROCEDURE ExtensionOf@6(Flat@1000000000 : Text) : Text;
+    VAR
+      Head@1000000001 : Text;
+    BEGIN
+      // The first bytes of a file say what it is, and in base64 they are the first few
+      // characters - so the kind is known before a single byte is written.
+      Head := COPYSTR(Flat,1,11);
+      IF COPYSTR(Head,1,4) = 'UEsD' THEN
+        EXIT('zip');
+      IF COPYSTR(Head,1,4) = 'TVqQ' THEN
+        EXIT('dll');
+      IF COPYSTR(Head,1,5) = 'JVBER' THEN
+        EXIT('pdf');
+      IF COPYSTR(Head,1,11) = 'iVBORw0KGgo' THEN
+        EXIT('png');
+      IF COPYSTR(Head,1,4) = '/9j/' THEN
+        EXIT('jpg');
+      IF COPYSTR(Head,1,8) = '0M8R4KGx' THEN
+        EXIT('doc');
+      IF COPYSTR(Head,1,4) = '77u/' THEN
+        EXIT('txt');
+      EXIT('bin');
+    END;
+
+    LOCAL PROCEDURE KindOf@13(Extension@1000000000 : Text) : Text;
+    BEGIN
+      CASE Extension OF
+        'zip': EXIT(ZipNameTxt);
+        'dll': EXIT(DllNameTxt);
+        'pdf': EXIT(PdfNameTxt);
+        'png': EXIT(PngNameTxt);
+        'jpg': EXIT(JpgNameTxt);
+        'doc': EXIT(OleNameTxt);
+        'txt': EXIT(TxtNameTxt);
+      END;
+      EXIT(BinNameTxt);
     END;
 
     LOCAL PROCEDURE SizeOf@4(Name@1000000000 : Text) : Integer;
@@ -160,6 +428,8 @@ OBJECT Codeunit 110207 AL Profiler Package Unpacker
       Probe@1000000001 : File;
       Size@1000000002 : Integer;
     BEGIN
+      IF NOT EXISTS(Name) THEN
+        EXIT(0);
       Probe.TEXTMODE(FALSE);
       Probe.OPEN(Name);
       Size := Probe.LEN;
@@ -167,10 +437,65 @@ OBJECT Codeunit 110207 AL Profiler Package Unpacker
       EXIT(Size);
     END;
 
+    LOCAL PROCEDURE CleanParts@14(VAR PartName@1000000000 : ARRAY [60] OF Text;Parts@1000000001 : Integer);
+    VAR
+      Index@1000000002 : Integer;
+    BEGIN
+      // Only what the client itself put on the service is removed. A part that was read
+      // from a folder was put there by a person and stays where it was put.
+      IF NOT GUIALLOWED THEN
+        EXIT;
+      FOR Index := 1 TO Parts DO
+        IF (PartName[Index] <> '') AND EXISTS(PartName[Index]) THEN
+          ERASE(PartName[Index]);
+    END;
+
+    LOCAL PROCEDURE Finish@15(Report@1000000000 : Text;VAR PartName@1000000001 : ARRAY [60] OF Text;Parts@1000000002 : Integer;OutPath@1000000003 : Text);
+    BEGIN
+      // The single way out for every refusal: temp cleared, one message, no error. A run
+      // that stops must leave the service exactly as it found it, or the next run stops
+      // on the leftovers instead of on its own reason.
+      IF (OutPath <> '') AND EXISTS(OutPath) THEN
+        ERASE(OutPath);
+      CleanParts(PartName,Parts);
+      AddLine(Report,StoppedTxt);
+      IF GUIALLOWED THEN
+        MESSAGE(Report)
+      ELSE
+        WriteReport(TEMPORARYPATH + 'LineProfilerUnpacker.log',Report);
+    END;
+
+    LOCAL PROCEDURE WriteReport@10(Path@1000000000 : Text;Report@1000000001 : Text);
+    VAR
+      LogFile@1000000002 : File;
+      Outs@1000000003 : OutStream;
+    BEGIN
+      // Without a client there is nobody to show a message to, and a run that says
+      // nothing is a run that cannot be told from a run that did nothing.
+      IF EXISTS(Path) THEN
+        ERASE(Path);
+      LogFile.TEXTMODE(TRUE);
+      LogFile.WRITEMODE(TRUE);
+      LogFile.CREATE(Path);
+      LogFile.CREATEOUTSTREAM(Outs);
+      Outs.WRITETEXT(CONVERTSTR(Report,'\',' '));
+      LogFile.CLOSE;
+    END;
+
+    LOCAL PROCEDURE AddLine@7(VAR Report@1000000000 : Text;Line@1000000001 : Text);
+    BEGIN
+      IF Report <> '' THEN
+        Report := Report + '\';
+      Report := Report + Line;
+    END;
+
     BEGIN
     {
       DD 18.08.2026 LineProfiler Created: rebuilds the mailed parts into the package archive and hands it to the client. Nothing else.
       DD 18.08.2026 LineProfiler One payload mark only; a part carrying the second one is refused instead of being glued on.
+      DD 19.08.2026 LineProfiler No ERROR left anywhere: every refusal closes its files, clears the temp and reports once. ERROR mid-read left a file handle on the service and the next run stopped on it.
+      DD 19.08.2026 LineProfiler Any file, not only an archive: the kind is read off the payload and used for the name. Plain base64 without marks is accepted too.
+      DD 19.08.2026 LineProfiler Parts are joined by the number they carry, not by the order they were picked; base64 in the wrong order decodes into rubbish without a word.
       Plain ASCII on purpose - the object travels as a mail body, and any encoding must do.
     }
     END.
