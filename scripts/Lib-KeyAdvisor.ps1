@@ -698,6 +698,55 @@ function Split-KaTerms {
     return @($parts | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 }
 
+function Resolve-KaWhereBounds {
+    <#
+    .SYNOPSIS
+        Спускается внутрь объемлющих скобок WHERE: сдвигает границы и глубину.
+
+    .DESCRIPTION
+        NAV кладёт ВЕСЬ фильтр внутрь одной пары скобок:
+        WHERE ("17"."No_"=@1 AND "17"."Name">=@2). Тогда все AND лежат на глубине
+        на единицу больше, точек деления на нашей глубине нет вовсе, и весь WHERE
+        уходит ОДНИМ слагаемым. Разобрать его как один предикат нельзя: жадная
+        правая часть простого сравнения съедает остаток, и выходит единственный
+        Unknown «правая часть — выражение», а множества E и R остаются пустыми.
+        Совет при этом печатается — по пустому отбору, то есть неверный и молча.
+
+        Спускаемся, оставаясь на той же карте: двигаются границы и глубина, текст
+        не пересобирается, а значит и позиции из Get-KaScan остаются годными.
+
+        Пара снимается, только если она ОБЪЕМЛЮЩАЯ. У «(A=1) AND (B=2)» первый и
+        последний знаки тоже скобки, но внутри мы выныриваем на внешний уровень —
+        такую пару трогать нельзя.
+    #>
+    param(
+        [Parameter(Mandatory)] $Scan,
+        [Parameter(Mandatory)] [int] $Start,
+        [Parameter(Mandatory)] [int] $End,
+        [Parameter(Mandatory)] [int] $Depth
+    )
+    $text = $Scan.Sql
+    while ($true) {
+        $a = $Start
+        while ($a -lt $End -and [char]::IsWhiteSpace($text[$a])) { $a++ }
+        $b = $End - 1
+        while ($b -gt $a -and [char]::IsWhiteSpace($text[$b])) { $b-- }
+        if ($a -ge $b) { break }
+        if ($text[$a] -ne '(' -or $text[$b] -ne ')') { break }
+        if ($Scan.Lit[$a] -or $Scan.Lit[$b]) { break }
+        if ($Scan.Depth[$a] -ne $Depth -or $Scan.Depth[$b] -ne $Depth) { break }
+        $escaped = $false
+        for ($i = $a + 1; $i -lt $b; $i++) {
+            if ($Scan.Depth[$i] -le $Depth) { $escaped = $true; break }
+        }
+        if ($escaped) { break }
+        $Start = $a + 1
+        $End   = $b
+        $Depth = $Depth + 1
+    }
+    return [pscustomobject]@{ Start = $Start; End = $End; Depth = $Depth }
+}
+
 function Remove-KaOuterParens {
     param([string] $Term)
     $s = $Term.Trim()
@@ -1046,7 +1095,10 @@ function Get-SqlPredicates {
     }
     $out.WhereText = $text.Substring($start, $end - $start).Trim()
 
-    $terms = Split-KaTerms -Scan $scan -Start $start -End $end -Depth $depth -Operator 'AND'
+    # Внешние скобки всего фильтра - форма самого NAV; без спуска внутрь делить
+    # нечего и весь WHERE ушёл бы одним неразобранным слагаемым.
+    $wb    = Resolve-KaWhereBounds -Scan $scan -Start $start -End $end -Depth $depth
+    $terms = Split-KaTerms -Scan $scan -Start $wb.Start -End $wb.End -Depth $wb.Depth -Operator 'AND'
     $preds = New-Object System.Collections.ArrayList
     foreach ($t in $terms) {
         $p = Get-KaTermPredicate $t

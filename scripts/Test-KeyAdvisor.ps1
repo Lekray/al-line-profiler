@@ -156,6 +156,37 @@ $litW  = '{0}={1}X AND Y{1}' -f (Col 17 'A'), $Q39
 $litSc = Get-KaScan $litW
 Test-G 'AND внутри литерала не считается' 0 @(Find-KaToken -Scan $litSc -Pattern '\bAND\b' -Depth 0).Count
 
+# --- внешние скобки всего WHERE --------------------------------------------
+# Форма самого NAV: весь фильтр внутри ОДНОЙ пары. Без спуска внутрь точек
+# деления на нашей глубине нет, весь WHERE уходит одним слагаемым в Unknown,
+# множества E и R остаются пустыми, а совет всё равно печатается.
+function Get-TermCount([string]$Where) {
+    $sc = Get-KaScan $Where
+    $wb = Resolve-KaWhereBounds -Scan $sc -Start 0 -End $Where.Length -Depth 0
+    return @(Split-KaTerms -Scan $sc -Start $wb.Start -End $wb.End -Depth $wb.Depth -Operator 'AND').Count
+}
+$whereCases = @(
+    @{ W = '({0}=@1 AND {1}>=@2 AND {1}<=@3)' -f (Col 17 'No_'), (Col 17 'Name'); N = 3 }
+    @{ W = '{0}=@1 AND {1}>=@2'               -f (Col 17 'No_'), (Col 17 'Name'); N = 2 }
+    @{ W = '(({0}=@1 AND {1}>=@2))'           -f (Col 17 'No_'), (Col 17 'Name'); N = 2 }
+    @{ W = '({0}=@1) AND ({1}>=@2)'           -f (Col 17 'No_'), (Col 17 'Name'); N = 2 }
+    @{ W = '({0}=@1)'                         -f (Col 17 'No_');                  N = 1 }
+    @{ W = '({0}={1}A AND B{1} AND {2}>=@2)'  -f (Col 17 'No_'), $Q39, (Col 17 'Name'); N = 2 }
+)
+foreach ($wc in $whereCases) { Test-G ('слагаемых в WHERE ' + $wc.W) $wc.N (Get-TermCount $wc.W) }
+
+# Спуск не должен трогать пару, которая не объемлющая: у «(A) AND (B)» первый и
+# последний знаки тоже скобки, но внутри мы выныриваем на внешний уровень.
+$notOuter = '({0}=@1) AND ({1}>=@2)' -f (Col 17 'No_'), (Col 17 'Name')
+$noSc = Get-KaScan $notOuter
+$noWb = Resolve-KaWhereBounds -Scan $noSc -Start 0 -End $notOuter.Length -Depth 0
+Test-G 'необъемлющая пара: глубина не сдвинулась' 0 $noWb.Depth
+
+$outer = '({0}=@1 AND {1}>=@2)' -f (Col 17 'No_'), (Col 17 'Name')
+$ouSc = Get-KaScan $outer
+$ouWb = Resolve-KaWhereBounds -Scan $ouSc -Start 0 -End $outer.Length -Depth 0
+Test-G 'объемлющая пара: глубина сдвинулась' 1 $ouWb.Depth
+
 # --- имена -----------------------------------------------------------------
 # Платформа заменяет на подчёркивание . " \ / ' % ] [ ; пробел НЕ заменяет.
 Test-G 'имя SQL для G/L Entry'  'G_L Entry'    (ConvertTo-KaSqlName 'G/L Entry')

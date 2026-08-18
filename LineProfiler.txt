@@ -7161,9 +7161,15 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // Приемник умеет сузить только по ОДНОЙ строке, а с заголовка функции нужен
       // диапазон - берем весь объект и отсеиваем лишнее здесь.
       FilterLine := -1;
+      // DD 18.08.2026 LineProfiler >>
+      // Обратный перевод в координаты трассировки - тем же смещением, что и прямой
+      // ниже. Зашитая единица при смещении 0 просила у приемника соседнюю строку;
+      // тот отдавал запросы не той строки, а отбор ниже выбрасывал и их - список
+      // приходил пустым, без единой жалобы.
       IF FromLine > 0 THEN
         IF FromLine = ToLine THEN
-          FilterLine := FromLine - 1;
+          FilterLine := FromLine - LineShift;
+      // DD 18.08.2026 LineProfiler <<
 
       Rows := Receiver.SelectQueries(ObjType,FilterID,FilterLine,FunctionName);
       FOR Index := 0 TO Rows - 1 DO
@@ -8060,9 +8066,14 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // заголовка стоит подпись целиком. Поэтому отбор по имени приемнику НЕ отдаем,
       // а сводим на своей стороне по координатам объекта и короткому имени.
       CalleeShort := UPPERCASE(ShortName(Callee.Line));
-      // Приемник хранит номер строки так, как его прислал ETW, - на единицу меньше
-      // листингового; тот же сдвиг, что и при сборке замеров.
-      Rows := Receiver.SelectEdges(Caller."Object Type",Caller."Object ID",Caller."Line No." - 1,'');
+      // DD 18.08.2026 LineProfiler >>
+      // Приемник хранит номер строки так, как его прислал ETW, - на LineShift меньше
+      // листингового; тот же сдвиг, что и при сборке замеров, и зашивать его нельзя.
+      // Рядом, в провале по ребрам, стоит уже снятое смещение, а здесь оставалась
+      // единица: при смещении 0 ребра не находились вовсе, и числа "отсюда" молча
+      // пропадали со строки.
+      Rows := Receiver.SelectEdges(Caller."Object Type",Caller."Object ID",Caller."Line No." - LineShift,'');
+      // DD 18.08.2026 LineProfiler <<
       FOR Index := 0 TO Rows - 1 DO
         IF Receiver.SelectEdgeRow(Index) THEN
           IF (Receiver.CurrentEdgeCalleeObjectType = Callee."Object Type") AND
@@ -9318,6 +9329,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       DD 17.08.2026 LineProfiler Провал в прямую рекурсию, имя своей функции убрано из целей провала.
       DD 18.08.2026 LineProfiler Аварийное выключение гасит журнал покрытия обоими признаками.
       DD 18.08.2026 LineProfiler Смещение номера строки снимается сверкой текстов, а не зашито.
+      DD 18.08.2026 LineProfiler Отбор запросов и ребер вызова идет снятым смещением, а не зашитой единицей.
     }
     END.
   }
