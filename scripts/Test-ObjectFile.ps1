@@ -25,8 +25,23 @@
           >>..<< — при копировании чужого кода как шаблона их комментарии убираются.
           Чужие теги ВНЕ наших блоков не проверяются: в унаследованном коде объекта
           они легитимны и должны сохраняться.
-          ВНИМАНИЕ: проверка (g) ОТКЛЮЧЕНА - список префиксов чужих тегов
-          зависит от базы и не заполнен (см. $foreignTagPrefixes ниже).
+          Работает в двух режимах, и первый включён всегда:
+            * по ФОРМЕ (предупреждение): комментарий внутри нашего блока начинается
+              с тега вида ABC-12345 — две-шесть заглавных латинских букв и четыре-шесть
+              цифр подряд. Знать конкретную базу для этого не нужно, поэтому режим
+              работает на чистой копии и в чужом контуре;
+            * по СПИСКУ (ошибка): семейства префиксов заданы явно — ключом
+              -ForeignTagPrefix или переменной окружения LP_FOREIGN_TAGS (через запятую,
+              точку с запятой или пробел). Захардкоженного списка здесь нет намеренно:
+              репозиторий публичный, а префиксы задач принадлежат установке.
+
+      (h) согласованность с двоичным контейнером: если рядом лежит <имя>.fob,
+          сверяются его оглавление (состав объектов, имена, даты, списки версий) и
+          происхождение — хэш текста, с которого .fob снят, из файла fob-origin.txt
+          рядом. Оглавление ловит подмену состава, происхождение — отставание: дата
+          в OBJECT-PROPERTIES ставится руками, и правка кода в тот же день оглавление
+          не меняет вовсе. Проверено на живом расхождении: .fob отставал от текста на
+          восемь коммитов, а состав совпадал полностью. Отключается ключом -NoFob.
 
     Вывод: список проблем с номерами строк и итоговая сводка.
     Код возврата: 1 если есть ошибки (errors); warnings не валят (код 0).
@@ -45,6 +60,15 @@
     изменений и чужих тегов (в Version List код задачи НЕ пишется).
     По умолчанию — имя файла без расширения.
 
+.PARAMETER ForeignTagPrefix
+    Префиксы тегов чужих задач, напр. ABC, XYZ. Найденные внутри наших блоков
+    >>..<< — ошибка, а не предупреждение. Если не задан, берётся из переменной
+    окружения LP_FOREIGN_TAGS (разделители: запятая, точка с запятой, пробел).
+    В коде списка нет и не будет: репозиторий публичный.
+
+.PARAMETER NoFob
+    Не сверять с двоичным контейнером <имя>.fob, даже если он лежит рядом.
+
 .EXAMPLE
     pwsh scripts/Test-ObjectFile.ps1 LineProfiler.txt
     Валидирует файл, код берётся из имени файла (LineProfiler).
@@ -56,7 +80,9 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$TaskFile,
-    [string]$TaskCode
+    [string]$TaskCode,
+    [string[]]$ForeignTagPrefix,
+    [switch]$NoFob
 )
 
 $ErrorActionPreference = 'Stop'
@@ -150,21 +176,31 @@ $typeOrder = @{ 'Table'=1; 'Page'=2; 'Report'=3; 'Codeunit'=4; 'XMLport'=5; 'Que
 # Экранированный код задачи для построения шаблонов тегов
 $tcEsc = [regex]::Escape($TaskCode)
 
-# (g) Шаблон чужих тег-комментариев (тегов других задач/разработчиков в baseline).
-#     Список префиксов ПУСТ - проверка отключена: семейства чужих тегов зависят
-#     от конкретной базы и заранее неизвестны. Чтобы включить - собрать grep'ом
-#     по выгрузке объектов фактически встречающиеся префиксы (напр. 'ABC','XYZ')
-#     и перечислить их здесь — проверка включится сама.
-#     Пустой список оставлен намеренно: чужой (непроверенный) шаблон дал бы
-#     ложно-зелёную проверку.
+# (g) Чужие тег-комментарии внутри наших блоков >>..<<.
+#
+#     Проверка по ФОРМЕ работает всегда и знания конкретной базы не требует: тег
+#     задачи выглядит как ABC-12345 - две-шесть заглавных латинских букв и следом
+#     четыре-шесть цифр. Якорь на НАЧАЛО комментария не для строгости, а против
+#     ложных срабатываний: 'CP1251', 'ISO8601' и 'RFC3339' в середине фразы имеют
+#     ту же форму, и без якоря каждое второе пояснение про кодировки становилось бы
+#     находкой. Тег же по соглашению стоит первым словом комментария.
+#     Три цифры не берутся намеренно: 'SHA256', 'CP866' и 'NAVW111' - не теги.
+$reTagShape = '//\s*(?:[A-Z]{2,4}\.)?[A-Z]{2,6}-?\d{4,6}(?![A-Za-z0-9])'
+
+#     Проверка по СПИСКУ поднимает находку до ошибки, но список приходит СНАРУЖИ -
+#     ключом или переменной окружения, как LP_DATABASE и LP_BASELINE_DIR. В коде его
+#     нет по двум причинам: репозиторий публичный (префиксы задач принадлежат
+#     установке), и захардкоженный чужой список дал бы ложно-зелёную проверку.
 $foreignTagPrefixes = @()
-$reForeignTag = if ($foreignTagPrefixes.Count -gt 0) {
-    '//.*?\b(?:[A-Z]{2,4}\.)?(?:' + (($foreignTagPrefixes | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')-?\d{3,6}\b'
-} else {
-    $null
+if ($ForeignTagPrefix) { $foreignTagPrefixes = @($ForeignTagPrefix) }
+elseif ($env:LP_FOREIGN_TAGS) {
+    $foreignTagPrefixes = @($env:LP_FOREIGN_TAGS -split '[,;\s]+' | Where-Object { $_ })
 }
-if ($null -eq $reForeignTag) {
-    AddWarn 0 'Проверка чужих тегов отключена: префиксы не перечислены (заполнить $foreignTagPrefixes в scripts/Test-ObjectFile.ps1).'
+$reForeignTag = $null
+if (@($foreignTagPrefixes).Count -gt 0) {
+    $reForeignTag = '//\s*(?:[A-Z]{2,4}\.)?(?:' +
+        ((@($foreignTagPrefixes) | ForEach-Object { [regex]::Escape($_) }) -join '|') +
+        ')-?\d{3,6}(?![A-Za-z0-9])'
 }
 
 # Подсчёт по объектам + порядок типов
@@ -250,10 +286,15 @@ for ($i = 0; $i -lt $lines.Count; $i++) {
             AddError $lineNo "Закрывающий тег << без соответствующего открывающего >> (вложенность ушла в минус)."
         }
     }
-    # (g) Чужой тег-комментарий внутри нашего блока >>..<< — скопированный шаблон с чужим комментарием
-    #     ($reForeignTag = $null -> проверка отключена; пустой шаблон совпал бы с любой строкой)
-    elseif ($nestDepth -gt 0 -and $null -ne $reForeignTag -and $line -match $reForeignTag -and $line -notmatch $tcEsc) {
+    # (g) Чужой тег-комментарий внутри нашего блока >>..<< — скопированный шаблон
+    #     с чужим комментарием. Известный префикс — ошибка, просто тег-по-форме —
+    #     предупреждение: форма угадывает, список знает.
+    elseif ($nestDepth -gt 0 -and $line -notmatch $tcEsc -and
+            $null -ne $reForeignTag -and $line -match $reForeignTag) {
         AddError $lineNo ("Чужой тег-комментарий внутри блока {0} (при копировании чужого кода комментарии убирать): {1}" -f $TaskCode, $line.Trim())
+    }
+    elseif ($nestDepth -gt 0 -and $line -notmatch $tcEsc -and $line -match $reTagShape) {
+        AddWarn $lineNo ("Комментарий внутри блока {0} начинается с тега чужой задачи (при копировании чужого кода комментарии убирать): {1}" -f $TaskCode, $line.Trim())
     }
 
     # (f) TextConst-эвристика (warning)
@@ -305,6 +346,63 @@ if ($openCount -ne $closeCount) {
 }
 if ($nestDepth -gt 0) {
     AddError 0 ("Незакрытые теги изменений: на конце файла вложенность = {0}." -f $nestDepth)
+}
+
+# --- (h) Согласованность с двоичным контейнером .fob -------------------------
+# Проверка включается сама, если .fob лежит рядом. Две независимые стороны:
+# оглавление отвечает «те ли это объекты», fob-origin.txt — «из этого ли текста
+# он собран». Второе без первого бесполезно, первое без второго — ложно-зелено.
+$fobPath = [System.IO.Path]::ChangeExtension($src, '.fob')
+if (-not $NoFob -and (Test-Path -LiteralPath $fobPath -PathType Leaf)) {
+    . (Join-Path $PSScriptRoot 'Lib-CSideFob.ps1')
+    $fobName = [System.IO.Path]::GetFileName($fobPath)
+    $txtName = [System.IO.Path]::GetFileName($src)
+
+    $fobDir = @()
+    try { $fobDir = @(Get-CSideFobDirectory -Path $fobPath) }
+    catch { AddWarn 0 ("Оглавление {0} не прочиталось ({1}) — сверка состава пропущена." -f $fobName, $_.Exception.Message) }
+
+    if ($fobDir.Count -eq 0) {
+        AddWarn 0 ("В {0} не нашлось оглавления объектов — сверка состава пропущена." -f $fobName)
+    }
+    else {
+        $txtDir = @(Get-CSideTextDirectory -Path $src)
+        foreach ($d in @(Compare-CSideDirectory -Fob $fobDir -Text $txtDir)) {
+            AddError 0 ("{0} расходится с текстом: {1}" -f $fobName, $d)
+        }
+    }
+
+    # Происхождение. Хэш текста в манифесте — это декларация «фоб снят с ЭТОГО
+    # текста», и она проверяемая: любая последующая правка её ломает.
+    $originPath = Join-Path (Split-Path -Parent $src) 'fob-origin.txt'
+    if (-not (Test-Path -LiteralPath $originPath -PathType Leaf)) {
+        AddWarn 0 ("Рядом с {0} нет fob-origin.txt: из какого текста снят контейнер — неизвестно." -f $fobName)
+    }
+    else {
+        $origin = @{}
+        foreach ($line in [System.IO.File]::ReadAllLines($originPath, [System.Text.Encoding]::UTF8)) {
+            $m = [regex]::Match($line, '^\s*([a-z]+)\s+(\S+)\s*$')
+            if ($m.Success) { $origin[$m.Groups[1].Value] = $m.Groups[2].Value.ToLowerInvariant() }
+        }
+        $shaTxt = Get-CSideSha256 $src
+        $shaFob = Get-CSideSha256 $fobPath
+
+        if (-not $origin.ContainsKey('txt') -or -not $origin.ContainsKey('fob')) {
+            AddWarn 0 'В fob-origin.txt нет строк txt и fob — происхождение контейнера не объявлено.'
+        }
+        else {
+            if ($origin['fob'] -ne $shaFob) {
+                AddError 0 ("{0} подменён после объявления: в fob-origin.txt {1}, на диске {2}." -f
+                            $fobName, $origin['fob'].Substring(0, 16), $shaFob.Substring(0, 16))
+            }
+            if ($origin['txt'] -ne $shaTxt) {
+                AddError 0 ("{0} снят с другой версии текста: в fob-origin.txt хэш {1}, у {2} сейчас {3}." -f
+                            $fobName, $origin['txt'].Substring(0, 16), $txtName, $shaTxt.Substring(0, 16))
+                AddError 0 ("Импорт {0} поставит код без последних правок текста. Перевыгрузить контейнер с базы, в которую импортирован текущий {1}, и обновить манифест: pwsh scripts/Update-FobOrigin.ps1" -f
+                            $fobName, $txtName)
+            }
+        }
+    }
 }
 
 # --- Вывод ---
