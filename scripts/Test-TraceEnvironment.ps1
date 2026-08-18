@@ -152,9 +152,24 @@ if (-not $prov) {
         if ($stmt.Channel) { $channel = $stmt.Channel }
         Add-Row 'Событие оператора' ('Id={0} v{1} {2}, полей {3}' -f
             $stmt.Id, $stmt.Version, $stmt.Task, $stmt.Fields.Count) 'ОК'
-        $key6 = @($stmt.Fields | Where-Object {
-            @('sessionId','objectType','objectId','functionName','lineNumber','statement') -contains $_ })
-        Add-Row 'Поля payload' ($key6 -join ',') 'ОК'
+        # Вердикт СЧИТАЕТСЯ по недостающим полям, а не ставится литералом. Раньше здесь
+        # стояло 'ОК' всегда, и строка «Поля payload: lineNumber,statement» тоже
+        # объявлялась зелёной. Дороже всего обходится отсутствие sessionId: приёмник
+        # пишет пустую колонку, разбор заводит стек по ключу сессии, и рамки всех сессий
+        # (клиент, NAS, очередь заданий) сваливаются в ОДИН стек - Self и Total считаются
+        # поверх чужих кадров, а предупреждения об этом не будет нигде.
+        $need    = @('sessionId','objectType','objectId','functionName','lineNumber','statement')
+        $key6    = @($stmt.Fields | Where-Object { $need -contains $_ })
+        $missing = @($need | Where-Object { $stmt.Fields -notcontains $_ })
+        if ($missing.Count -eq 0) {
+            Add-Row 'Поля payload' ($key6 -join ',') 'ОК'
+        }
+        elseif ($missing -contains 'sessionId') {
+            Add-Row 'Поля payload' ('НЕ ХВАТАЕТ ' + ($missing -join ',') + ' - сессии сольются в один стек') 'НЕТ'
+        }
+        else {
+            Add-Row 'Поля payload' ('НЕ ХВАТАЕТ ' + ($missing -join ',')) 'ВНИМ'
+        }
     } else {
         Add-Row 'Событие оператора' 'нет события с полями lineNumber и statement' 'НЕТ'
         Add-Row 'Поля payload' '-' 'НЕТ'

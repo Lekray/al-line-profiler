@@ -759,6 +759,10 @@ $script:Log.NewLine   = "`r`n"
 
 $tsvPath  = Join-Path $OutDir 'events.tsv'
 $etlPath  = Join-Path $OutDir 'trace.etl'
+# Коды возврата: 0 - сбор прошёл; 8 - трассе верить нельзя (событий нет, кольцо
+# перезаписало начало либо ядро сообщило о потерянных буферах); 9 - откат не удался,
+# машина осталась изменённой и требует рук. Девятка перебивает восьмёрку: сперва
+# приводят в порядок сервер, потом разбираются с данными.
 $exitCode = 0
 
 Write-Host ''
@@ -1311,6 +1315,11 @@ try {
     elseif (($lossNote -join ' ') -match '=\s*[1-9]') {
         Write-Host 'Потеряно:  ядро сообщило о потерянных буферах - см. счётчики выше' -ForegroundColor Yellow
         Write-Host ('  Повторите с -BufferSizeKB {0} -MaxBuffers {1}.' -f ($BufferSizeKB * 2), ($MaxBuffers * 2)) -ForegroundColor Yellow
+        # Единственная из трёх веток потерь, которая кода возврата НЕ выставляла, - и это
+        # было упущение, а не решение: вызывающий трактует 8 как «трасса пустая ЛИБО
+        # ПОТЕРЯНА». Терялись целые буферы, Hits и Self занижались неравномерно, а прогон
+        # объявлялся зелёным.
+        $exitCode = 8
     }
     else {
         Write-Host 'Потеряно:  0' -ForegroundColor Green
@@ -1373,6 +1382,10 @@ finally {
                 Write-Host ('НЕ УДАЛОСЬ вернуть CustomSettings.config: {0}' -f $_.Exception.Message) -ForegroundColor Red
                 Write-Host ('Восстановите вручную: {0}' -f (Join-Path $OutDir 'restore.cmd')) -ForegroundColor Red
                 Write-Log 'откат конфигурации НЕ УДАЛСЯ'
+                # Машина осталась изменённой - это требует рук на сервере и перебивает
+                # любой результат сбора. Раньше все присвоения кода лежали ДО finally,
+                # и провал отката выходил с нулём: вызывающий печатал зелёное «ОК».
+                $exitCode = 9
             }
         }
         if ($svcTouched -and $svc) {
@@ -1392,6 +1405,9 @@ finally {
             catch {
                 Write-Host ('НЕ УДАЛОСЬ вернуть службу в состояние {0}: {1}' -f $svcOrigStatus, $_.Exception.Message) -ForegroundColor Red
                 Write-Log 'откат службы НЕ УДАЛСЯ'
+                # То же самое: инстанция не поднялась - на сервере остались руки, а не
+                # успешный прогон. Код 9 перебивает 8: разбираться надо сперва с машиной.
+                $exitCode = 9
             }
         }
     }

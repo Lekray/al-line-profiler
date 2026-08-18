@@ -103,6 +103,90 @@ function Get-Row {
 # Смещение 0: в проверках номер строки листинга равен номеру из события.
 function Measure-Case { param($Events) return @(Measure-AlLines -Events $Events -LineOffset 0) }
 
+function New-TestDump {
+    <#
+    .SYNOPSIS
+        Минимальный дамп исходников: заголовок функции и два оператора.
+    #>
+    param([string] $Root, [int] $Ot = 5, [int] $Oi = 110200)
+    New-Item -ItemType Directory -Path $Root -Force | Out-Null
+    $u = New-Object System.Text.UTF8Encoding($false)
+    $t = [char]9
+    [System.IO.File]::WriteAllText((Join-Path $Root ('{0}_{1}.al' -f $Ot, $Oi)),
+        "MyFunc()`r`n  Tick;`r`n  Done := Done + 1;`r`n", $u)
+    [System.IO.File]::WriteAllText((Join-Path $Root 'index.tsv'),
+        (('ObjectType','TypeName','ObjectId','Name','Lines','Bytes','Compiled','Date','Time','VersionList','Hash') -join $t) + "`r`n" +
+        ((([string]$Ot),'Codeunit',([string]$Oi),'Проверка','3','60','1','18.08.26','12:00:00','TEST','0') -join $t) + "`r`n", $u)
+}
+
+function New-TestEvents {
+    <#
+    .SYNOPSIS
+        events.tsv в том виде, в каком его пишет сборщик трассировки.
+    #>
+    param([string] $Path, [object[]] $Rows)
+    $t = [char]9
+    $out = New-Object System.Collections.Generic.List[string]
+    [void]$out.Add((('EventId','EventName','TimeCreatedTicks','SessionId','ObjectType','ObjectId',
+                     'FunctionName','LineNumber','Statement','RecordId','ThreadId','Raw') -join $t))
+    foreach ($r in $Rows) {
+        [void]$out.Add(( '0', $r.Name, ([string][int64]($r.Ms * 10000)), '1',
+                         ([string]$r.Ot), ([string]$r.Oi), $r.Fn, $r.Line, $r.Stmt,
+                         ([string]$r.Rec), '1', '' ) -join $t)
+    }
+    [System.IO.File]::WriteAllText($Path, (($out -join "`r`n") + "`r`n"),
+                                   (New-Object System.Text.UTF8Encoding($false)))
+}
+
+function Invoke-Rebuild {
+    <#
+    .SYNOPSIS
+        Прогон Rebuild-Report.ps1 целиком; возвращает код возврата (-1, если упал).
+    #>
+    param([string] $RunDir, [string] $Src, [int] $Ot = 5, [int] $Oi = 110200)
+    try {
+        $global:LASTEXITCODE = 0
+        & (Join-Path $PSScriptRoot 'Rebuild-Report.ps1') -RunDir $RunDir -ObjectType $Ot `
+            -ObjectId $Oi -SourceRoot $Src -NoHints *>$null
+        if ($null -eq $LASTEXITCODE) { return 0 }
+        return [int]$LASTEXITCODE
+    }
+    catch { return -1 }
+}
+
+function Get-MetricLines {
+    <#
+    .SYNOPSIS
+        Номера строк из lines.tsv прогона.
+    #>
+    param([string] $RunDir)
+    $p = Join-Path $RunDir 'lines.tsv'
+    if (-not (Test-Path -LiteralPath $p)) { return @() }
+    $l = [System.IO.File]::ReadAllLines($p, [System.Text.Encoding]::UTF8)
+    if ($l.Length -lt 2) { return @() }
+    $h = $l[0] -split "`t"
+    $ix = [array]::IndexOf($h, 'LineNo')
+    if ($ix -lt 0) { return @() }
+    $res = @()
+    for ($i = 1; $i -lt $l.Length; $i++) {
+        if (-not $l[$i].Trim()) { continue }
+        $res += [int]($l[$i] -split "`t")[$ix]
+    }
+    return ($res | Sort-Object -Unique)
+}
+
+function New-TestRun {
+    <#
+    .SYNOPSIS
+        Пустой каталог прогона рядом с дампом; возвращает оба пути.
+    #>
+    $root = Join-Path ([System.IO.Path]::GetTempPath()) ('lp-run-' + [guid]::NewGuid().ToString('N'))
+    $src  = Join-Path $root 'src'
+    New-Item -ItemType Directory -Path $root -Force | Out-Null
+    New-TestDump -Root $src
+    return [pscustomobject]@{ Dir = $root; Src = $src }
+}
+
 # ---------------------------------------------------------------------------
 # 1. Контроль: без SQL и без ошибок числа должны быть очевидными
 # ---------------------------------------------------------------------------
@@ -256,6 +340,72 @@ else {
     Test-Value 'вклад: заголовок больше не обещает сумму' $false $text.Contains('Self + SQL')
 }
 Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+
+# ---------------------------------------------------------------------------
+# 8. Находка №18: облегчённый сбор - не сбой. Событий уровня оператора в нём нет
+#    по построению, и объявлять это красным «нет операторов объекта» нельзя.
+# ---------------------------------------------------------------------------
+$r8 = New-TestRun
+New-TestEvents (Join-Path $r8.Dir 'events.tsv') @(
+    @{ Name = 'SlowSql'; Ms = 1; Ot = 5; Oi = 110200; Fn = ''; Line = ''; Stmt = ''; Rec = 1 },
+    @{ Name = 'SlowSql'; Ms = 2; Ot = 5; Oi = 110200; Fn = ''; Line = ''; Stmt = ''; Rec = 2 },
+    @{ Name = 'SlowSql'; Ms = 3; Ot = 5; Oi = 110200; Fn = ''; Line = ''; Stmt = ''; Rec = 3 }
+)
+Test-Value 'облегчённый сбор: код возврата' 0 (Invoke-Rebuild -RunDir $r8.Dir -Src $r8.Src)
+Remove-Item -LiteralPath $r8.Dir -Recurse -Force -ErrorAction SilentlyContinue
+
+# Здоровый прогон: та же обвязка, всё на месте - контроль, чтобы девятка ниже
+# не оказалась следствием самой обвязки.
+$okRows = @(
+    @{ Name = 'ALFunctionStart'; Ms = 1;  Ot = 5; Oi = 110200; Fn = 'MyFunc'; Line = '';  Stmt = '';                  Rec = 1 },
+    @{ Name = 'ALStatement';     Ms = 1;  Ot = 5; Oi = 110200; Fn = 'MyFunc'; Line = '1'; Stmt = 'Tick;';             Rec = 2 },
+    @{ Name = 'ALStatement';     Ms = 4;  Ot = 5; Oi = 110200; Fn = 'MyFunc'; Line = '2'; Stmt = 'Done := Done + 1;'; Rec = 3 },
+    @{ Name = 'ALFunctionStop';  Ms = 10; Ot = 5; Oi = 110200; Fn = 'MyFunc'; Line = '';  Stmt = '';                  Rec = 4 }
+)
+$r9 = New-TestRun
+New-TestEvents (Join-Path $r9.Dir 'events.tsv') $okRows
+Test-Value 'здоровый прогон: код возврата' 0 (Invoke-Rebuild -RunDir $r9.Dir -Src $r9.Src)
+Test-Value 'здоровый прогон: строки метрик' '2,3' ((Get-MetricLines $r9.Dir) -join ',')
+Remove-Item -LiteralPath $r9.Dir -Recurse -Force -ErrorAction SilentlyContinue
+
+# ---------------------------------------------------------------------------
+# 9. В трассировке есть операторы, но чужого объекта - это другой сценарий в клиенте
+# ---------------------------------------------------------------------------
+$r10 = New-TestRun
+New-TestEvents (Join-Path $r10.Dir 'events.tsv') (@($okRows | ForEach-Object {
+    $c = $_.Clone(); $c.Oi = 110201; $c }))
+Test-Value 'другой сценарий: код возврата' 8 (Invoke-Rebuild -RunDir $r10.Dir -Src $r10.Src)
+Remove-Item -LiteralPath $r10.Dir -Recurse -Force -ErrorAction SilentlyContinue
+
+# ---------------------------------------------------------------------------
+# 10. Находки №21/25: гейт валидности прогона. Разрыв нумерации записей канала -
+#     это потерянные события; отчёт строится, но верить его числам нельзя.
+# ---------------------------------------------------------------------------
+$r11 = New-TestRun
+$gapRows = @($okRows | ForEach-Object { $c = $_.Clone(); $c })
+$gapRows[3].Rec = 50          # пропуск записей 4..49
+New-TestEvents (Join-Path $r11.Dir 'events.tsv') $gapRows
+Test-Value 'гейт: разрыв нумерации даёт код 9' 9 (Invoke-Rebuild -RunDir $r11.Dir -Src $r11.Src)
+Test-Value 'гейт: отчёт всё равно построен' $true (Test-Path -LiteralPath (Join-Path $r11.Dir '5_110200.html'))
+Remove-Item -LiteralPath $r11.Dir -Recurse -Force -ErrorAction SilentlyContinue
+
+# ---------------------------------------------------------------------------
+# 11. Находки №8/20/24: провал калибровки включает резервный маппинг по тексту.
+#     Оба оператора помечены одним номером строки, поэтому ни одно смещение из
+#     -1/0/1 не даёт 80 % совпадений. По смещению оба легли бы на строку 2;
+#     по тексту ложатся туда, где действительно стоят - на 2 и 3.
+# ---------------------------------------------------------------------------
+$r12 = New-TestRun
+New-TestEvents (Join-Path $r12.Dir 'events.tsv') @(
+    @{ Name = 'ALFunctionStart'; Ms = 1;  Ot = 5; Oi = 110200; Fn = 'MyFunc'; Line = '';  Stmt = '';                  Rec = 1 },
+    @{ Name = 'ALStatement';     Ms = 1;  Ot = 5; Oi = 110200; Fn = 'MyFunc'; Line = '2'; Stmt = 'Tick;';             Rec = 2 },
+    @{ Name = 'ALStatement';     Ms = 4;  Ot = 5; Oi = 110200; Fn = 'MyFunc'; Line = '2'; Stmt = 'Done := Done + 1;'; Rec = 3 },
+    @{ Name = 'ALFunctionStop';  Ms = 10; Ot = 5; Oi = 110200; Fn = 'MyFunc'; Line = '';  Stmt = '';                  Rec = 4 }
+)
+$code12 = Invoke-Rebuild -RunDir $r12.Dir -Src $r12.Src
+Test-Value 'калибровка не сошлась: код возврата' 0 $code12
+Test-Value 'калибровка не сошлась: строки по тексту' '2,3' ((Get-MetricLines $r12.Dir) -join ',')
+Remove-Item -LiteralPath $r12.Dir -Recurse -Force -ErrorAction SilentlyContinue
 
 # ---------------------------------------------------------------------------
 # вердикт
