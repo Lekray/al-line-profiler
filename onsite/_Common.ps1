@@ -85,6 +85,27 @@ function Get-NavContext {
     return $ctx
 }
 
+# Известные файлы TraceEvent: сумма -> что это за файл.
+#
+# Самой библиотеки в репозитории проекта нет и быть не может: версии до 2.0.31 выпущены
+# под лицензией, которая прямо запрещает выкладывать файл для копирования другими.
+# Поэтому в репозитории лежит то, что публикацией не является, - ОПОЗНАВАТЕЛЬНАЯ ЗАПИСЬ:
+# размер и сумма. Совпала сумма - библиотека названа поимённо, и гадать, какая она стоит
+# на сервере, не приходится ни одной стороне. Не совпала - это тоже ответ, и шаг 3 всё
+# равно соберёт приёмник против того, что здесь лежит.
+$KnownTraceEvent = @{
+    '061D00FE7EB38719EF6F4A1BC0F3AFCBB2A08F0247632CC5F29F557E4604E799' =
+        'штатный файл NAV 2018 (2 107 696 байт), побайтно равен пакету NuGet 1.0.39'
+}
+
+function Get-KnownTraceEvent {
+    param([string]$Sha)
+    if (-not $Sha) { return '' }
+    $key = $Sha.ToUpper()
+    if ($KnownTraceEvent.ContainsKey($key)) { return $KnownTraceEvent[$key] }
+    return ''
+}
+
 function Get-TraceEventDlls {
     param($Ctx)
     # Поставочный приёмник NAV лежит в своей подпапке, а на целевой базе может быть
@@ -104,9 +125,13 @@ function Get-TraceEventDlls {
         try { $fileVer = [Diagnostics.FileVersionInfo]::GetVersionInfo($f.FullName).FileVersion } catch { }
         # Не сборка вовсе - в отбор не берём, иначе сортировка по версии падает.
         if (-not $asmVer) { continue }
+        $sha = ''
+        try { $sha = (Get-FileHash $f.FullName -Algorithm SHA256).Hash } catch { }
         $list += [pscustomobject]@{
             Version     = $asmVer
             FileVersion = $fileVer
+            Sha         = $sha
+            Size        = $f.Length
             Path        = $f.FullName
         }
     }
