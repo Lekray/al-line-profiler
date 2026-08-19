@@ -1924,7 +1924,7 @@ OBJECT Page 110200 AL Line Profiler
 {
   OBJECT-PROPERTIES
   {
-    Date=17.08.26;
+    Date=20.08.26;
     Time=12:00:00;
     Modified=Yes;
     Version List=ALProfiler;
@@ -2537,8 +2537,8 @@ OBJECT Page 110200 AL Line Profiler
                 Name=CodeLine;
                 CaptionML=[ENU=Code;
                            RUS=Код];
-                ToolTipML=[ENU=Specifies the source line, its function, or its object. The lookup button goes inside the function the line calls, and on a function header it goes back up. A line that can be opened is shown in bold. A "from here" tag means the header figures cover only calls from the line above.;
-                           RUS=Определяет строку исходника, ее функцию или ее объект. Кнопка выбора проваливает внутрь функции, которую зовет строка, а на заголовке функции возвращает наверх. Строка, которую есть чем раскрыть, выделена начертанием. Метка "отсюда" значит, что числа заголовка - по вызовам из строки выше.];
+                ToolTipML=[ENU=Specifies the source line, its function, or its object. The lookup button goes inside the function the line calls. On the header of a plain procedure it opens the body of that procedure, and pressing it again closes the body. On the header of an opened function it goes back up. A line that can be opened is shown in bold. A "from here" tag means the header figures cover only calls from the line above.;
+                           RUS=Определяет строку исходника, ее функцию или ее объект. Кнопка выбора проваливает внутрь функции, которую зовет строка. На заголовке обычной процедуры она раскрывает ее тело, а повторное нажатие тело закрывает. На заголовке раскрытой функции возвращает наверх. Строка, которую есть чем раскрыть, выделена начертанием. Метка "отсюда" значит, что числа заголовка - по вызовам из строки выше.];
                 ApplicationArea=#All;
                 Lookup=Yes;
                 SourceExpr=Line;
@@ -2573,11 +2573,28 @@ OBJECT Page 110200 AL Line Profiler
                                RefreshNav(ReturnEntry,FromNode);
                              EXIT;
                            END;
-                           // Заголовок функции и есть то, что мы раскрыли, - с него
-                           // и закрываем.
-                           IF "Line Type" = "Line Type"::"Trigger/Function" THEN
-                             IF ProfilerMgt.NavClose(Rec,FromNode,ReturnEntry) THEN
-                               RefreshNav(ReturnEntry,-1);
+                           IF "Line Type" = "Line Type"::"Trigger/Function" THEN BEGIN
+                             // Под заголовком уже раскрыто его тело - щелчок закрывает,
+                             // ровно как на строке вызова.
+                             Node := ProfilerMgt.NavNodeOf("Source Entry No.",FromNode);
+                             IF Node > 0 THEN BEGIN
+                               IF ProfilerMgt.NavClose(Rec,Node,ReturnEntry) THEN
+                                 RefreshNav(ReturnEntry,-1);
+                               EXIT;
+                             END;
+                             // Заголовок открытой функции и есть то, что мы раскрыли, -
+                             // с него и закрываем.
+                             IF FromNode > 0 THEN BEGIN
+                               IF ProfilerMgt.NavClose(Rec,FromNode,ReturnEntry) THEN
+                                 RefreshNav(ReturnEntry,-1);
+                               EXIT;
+                             END;
+                             // Заголовок обычной процедуры на корне: раскрываем тело.
+                             // У точки входа оно и так на экране - там ничего не
+                             // произойдет, и решает это сам кодюнит.
+                             IF ProfilerMgt.NavBody(Rec,"Source Entry No.",ReturnEntry) THEN
+                               RefreshNav(ReturnEntry,0);
+                           END;
                          END;
                           }
     { 29  ;2   ;Field     ;
@@ -3079,6 +3096,7 @@ OBJECT Page 110200 AL Line Profiler
       DD 17.08.2026 LineProfiler Начертание строки держит вся строка, тепло ложится поверх него.
       DD 17.08.2026 LineProfiler Курсор при раскрытии остается на строке вызова, положение указывается вместе с узлом.
       DD 17.08.2026 LineProfiler Пояснение про рекурсию: полное время по внешнему витку.
+      DD 20.08.2026 LineProfiler Щелчок по заголовку обычной процедуры раскрывает ее тело, повторный закрывает.
     }
     END.
   }
@@ -5056,7 +5074,9 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       ChkDoorlessTxt@1000000141 : TextConst 'ENU=an object entered by a plain call is open from the root;RUS=объект, в который вошли прямым вызовом, открывается с корня';
       DoorlessTxt@1000000142 : TextConst 'ENU=children under it %1, dead ends in the view %2;RUS=потомков под ним %1, тупиков в виде %2';
       ChkWorkSeenTxt@1000000143 : TextConst 'ENU=work of a plain procedure is visible under its object;RUS=работа обычной процедуры видна под своим объектом';
-      WorkSeenTxt@1000000144 : TextConst 'ENU=hits under it %1, object self ms %2, sum under it %3;RUS=выполнений под ним %1, свое время объекта %2, сумма под ним %3';
+      WorkSeenTxt@1000000144 : TextConst 'ENU=hits under it %1, object self ms %2, sum under it %3, frame rows under headers %4;RUS=выполнений под ним %1, свое время объекта %2, сумма под ним %3, каркасных строк под заголовками %4';
+      ChkBodyNavTxt@1000000146 : TextConst 'ENU=the body of a plain procedure opens from its own header;RUS=тело обычной процедуры раскрывается с ее собственного заголовка';
+      BodyNavTxt@1000000147 : TextConst 'ENU=lines before %1, lines after %2, headers %3;RUS=строк до %1, строк после %2, заголовков %3';
       RootDoorTxt@1000000140 : TextConst 'ENU=objects without a single child: %1;RUS=объектов без единого потомка: %1';
       HeadersTxt@1000000076 : TextConst 'ENU=headers %1, broken %2;RUS=заголовков %1, нарушений %2';
       ChkCmpTxt@1000000040 : TextConst 'ENU=comparison found lines on both sides;RUS=сравнение нашло строки с обеих сторон';
@@ -5072,6 +5092,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       NavTargets@1000000068 : ARRAY [20] OF Text;
       NavFrom@1000000071 : ARRAY [20] OF Integer;
       NavParent@1000000088 : ARRAY [20] OF Integer;
+      NavBodyOnly@1000000145 : ARRAY [20] OF Boolean;
       NavCount@1000000069 : Integer;
       LineShift@1000000134 : Integer;
       ShiftVotes@1000000135 : ARRAY [2] OF Integer;
@@ -7599,8 +7620,10 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
     [External]
     PROCEDURE NavRoot@78(VAR TempLine@1000000000 : TEMPORARY Record 110200);
     BEGIN
-      // Верхний уровень - только точки входа: то, что платформа зовёт сама. Обычные
-      // процедуры в список не попадают, в них проваливаются со строки вызова.
+      // Верхний уровень - карта объекта: точки входа, которые платформа зовёт сама, и
+      // обычные процедуры, отработавшие в этом замере. Строки кода на корне раскрыты
+      // только у точек входа; тело обычной процедуры открывается щелчком по её
+      // заголовку, а провал по вызовам идёт со строки кода.
       NavCount := 0;
       FillView(TempLine);
     END;
@@ -7647,6 +7670,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
             Parent := NewNo[NavParent[Index]];
           NavFrom[Kept] := NavFrom[Index];
           NavTargets[Kept] := NavTargets[Index];
+          NavBodyOnly[Kept] := NavBodyOnly[Index];
           NavParent[Kept] := Parent;
         END;
       NavCount := Kept;
@@ -7684,12 +7708,58 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       NavTargets[NavCount] := Names;
       NavFrom[NavCount] := FromEntryNo;
       NavParent[NavCount] := FromNode;
+      // Узел провала показывает ЗАГОЛОВОК вызванной функции: она открывается впервые,
+      // и без заголовка под строкой вызова висели бы голые операторы.
+      NavBodyOnly[NavCount] := FALSE;
       FillView(TempLine);
       // Курсор остается на той строке, с которой раскрывали (решение пользователя
       // 17.08.2026): раскрытое читают сверху вниз, от места вызова, а прыжок на
       // заголовок уводил взгляд оттуда, где человек и так стоял. Искать заголовок
       // глазами при этом не приходится: вид собирается так, что первая строка нового
       // узла идет сразу за строкой вызова.
+      PositionEntryNo := FromEntryNo;
+      EXIT(TRUE);
+    END;
+
+    [External]
+    PROCEDURE NavBody@168(VAR TempLine@1000000000 : TEMPORARY Record 110200;FromEntryNo@1000000001 : Integer;VAR PositionEntryNo@1000000002 : Integer) : Boolean;
+    VAR
+      Anchor@1000000003 : TEMPORARY Record 110200;
+      FuncName@1000000004 : Text[250];
+      ObjType@1000000005 : Integer;
+    BEGIN
+      // Заголовок обычной процедуры стоит на корне со своим временем, а строк под ним
+      // нет: тело на корне раскрыто только у точек входа. Время видно, войти некуда -
+      // тот же тупик, что был у объекта, только этажом ниже. Раскрываем тело ЭТОЙ ЖЕ
+      // функции, а не то, что она зовет: провал по вызовам идет со строки кода.
+      Anchor.COPY(FullLine,TRUE);
+      Anchor.RESET;
+      IF NOT Anchor.GET(FromEntryNo) THEN
+        EXIT(FALSE);
+      IF Anchor."Line Type" <> Anchor."Line Type"::"Trigger/Function" THEN
+        EXIT(FALSE);
+      FuncName := DELCHR(Anchor.Line,'<>',' ');
+      IF FuncName = '' THEN
+        EXIT(FALSE);
+      // У точки входа тело уже показано на корне: узел дал бы второй экземпляр тех же
+      // строк, и щелчок по заголовку выглядел бы как удвоение листинга.
+      IF IsEntryPoint(FuncName) THEN
+        EXIT(FALSE);
+      // Заголовок без единой строки кода - заглушка события. Тела у нее нет вовсе, а
+      // подписчик висит не в ней: к нему идут провалом со строки издателя.
+      IF Anchor."Code Lines" = 0 THEN
+        EXIT(FALSE);
+      IF NavCount >= 20 THEN
+        ERROR(NavTooDeepErr);
+      // FORMAT опции дает подпись, а не номер, поэтому тип объекта сперва в целое.
+      ObjType := Anchor."Object Type";
+      NavCount := NavCount + 1;
+      NavTargets[NavCount] := NavToken(ObjType,Anchor."Object ID",FuncName) + '|';
+      NavFrom[NavCount] := FromEntryNo;
+      NavParent[NavCount] := 0;
+      // Заголовок повторять нельзя - он и есть строка, с которой раскрывали.
+      NavBodyOnly[NavCount] := TRUE;
+      FillView(TempLine);
       PositionEntryNo := FromEntryNo;
       EXIT(TRUE);
     END;
@@ -7989,9 +8059,13 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
           Top := NavParent[Top];
         Anchor.RESET;
         IF Anchor.GET(NavFrom[Top]) THEN BEGIN
-          Name := '|' + UPPERCASE(Anchor."Function Name") + '|';
-          IF STRPOS(RootFuncs,Name) = 0 THEN
-            RootFuncs := RootFuncs + Name;
+          // Раскрыть можно и с ЗАГОЛОВКА функции, а поля имени у него нет - имя лежит
+          // прямо в тексте строки. Взяв поле, отбор получил бы пустое имя и погасил
+          // корень целиком.
+          Name := '|' + UPPERCASE(RowFunc(Anchor)) + '|';
+          IF Name <> '||' THEN
+            IF STRPOS(RootFuncs,Name) = 0 THEN
+              RootFuncs := RootFuncs + Name;
         END;
       END;
     END;
@@ -8000,6 +8074,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
     VAR
       Cur@1000000004 : TEMPORARY Record 110200;
       PrevVisible@1000000005 : Boolean;
+      PrevCode@1000000010 : Boolean;
       Visible@1000000006 : Boolean;
       MyIndent@1000000007 : Integer;
       Child@1000000009 : Integer;
@@ -8016,12 +8091,18 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       PrevVisible := FALSE;
       REPEAT
         // Продолжения многострочного оператора платформа помечает неисполняемой
-        // строкой сразу за строкой кода - они идут вслед за своей строкой.
+        // строкой сразу за строкой кода - они идут вслед за своей строкой. Тянет их
+        // ТОЛЬКО строка кода: за заголовком функции, тело которой на этом уровне не
+        // показано, каркасные BEGIN и END оставались единственными потомками и обещали
+        // раскрытие, за которым нет ничего. Хуже того, обещали они его не у всех
+        // подряд, а у тех функций, чьи строки кода в отбор не попали, - на экране это
+        // выглядело случайной россыпью стрелок.
         IF Cur."Line Type" = Cur."Line Type"::Empty THEN
-          Visible := PrevVisible
+          Visible := PrevVisible AND PrevCode
         ELSE BEGIN
           Visible := VisibleAt(Cur,NodeNo);
           PrevVisible := Visible;
+          PrevCode := Cur."Line Type" = Cur."Line Type"::Code;
         END;
         IF Visible THEN BEGIN
           Seq := Seq + 1;
@@ -8166,10 +8247,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
     BEGIN
       IF Line."Line Type" = Line."Line Type"::Object THEN
         EXIT(NodeNo = 0);
-      IF Line."Line Type" = Line."Line Type"::"Trigger/Function" THEN
-        FuncName := DELCHR(Line.Line,'<>',' ')
-      ELSE
-        FuncName := Line."Function Name";
+      FuncName := RowFunc(Line);
       IF FuncName = '' THEN
         EXIT(FALSE);
       IF NodeNo = 0 THEN BEGIN
@@ -8198,7 +8276,22 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
           EXIT(STRPOS(RootFuncs,'|' + UPPERCASE(FuncName) + '|') > 0);
         EXIT(TRUE);
       END;
+      // Тело, раскрытое с собственного заголовка функции: сам заголовок в узел не идет -
+      // он стоит строкой выше, и узел показал бы его копию.
+      IF NavBodyOnly[NodeNo] THEN
+        IF Line."Line Type" = Line."Line Type"::"Trigger/Function" THEN
+          EXIT(FALSE);
       EXIT(InTargets(NavTargets[NodeNo],Line,FuncName));
+    END;
+
+    LOCAL PROCEDURE RowFunc@169(VAR Line@1000000000 : Record 110200) : Text[250];
+    BEGIN
+      // У строки кода имя функции лежит полем, а у ЗАГОЛОВКА поля нет вовсе - там оно
+      // и есть текст строки. Место одно на всех: разойдясь, две записи этого правила
+      // молча расходятся и в отборе.
+      IF Line."Line Type" = Line."Line Type"::"Trigger/Function" THEN
+        EXIT(DELCHR(Line.Line,'<>',' '));
+      EXIT(Line."Function Name");
     END;
 
     LOCAL PROCEDURE IsEntryPoint@85(FuncName@1000000000 : Text[250]) : Boolean;
@@ -8789,6 +8882,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       Hits@1000000008 : Integer;
       ObjSelf@1000000009 : Decimal;
       SumSelf@1000000010 : Decimal;
+      Frame@1000000011 : Integer;
+      PrevHead@1000000012 : Boolean;
     BEGIN
       // Время объекта обязано быть видно ПОД объектом. Точки входа у него тут есть -
       // подписчики событий с именами на On, - но в этот раз их никто не поднимал, а
@@ -8806,6 +8901,12 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       TempLine.RESET;
       IF TempLine.FINDSET THEN
         REPEAT
+          // Каркасная строка идет за строкой кода, продолжением оператора. Стоя сразу
+          // за ЗАГОЛОВКОМ, она обещает раскрытие, за которым нет ничего: тела функции
+          // на корне нет, и под заголовком висят одни BEGIN с END.
+          IF (TempLine."Line Type" = TempLine."Line Type"::Empty) AND PrevHead THEN
+            Frame := Frame + 1;
+          PrevHead := TempLine."Line Type" = TempLine."Line Type"::"Trigger/Function";
           IF TempLine."Line Type" = TempLine."Line Type"::Object THEN BEGIN
             Seen := (TempLine."Object Type" = TempLine."Object Type"::CodeUnit) AND
                     (TempLine."Object ID" = 110201);
@@ -8824,8 +8925,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // обязана сойтись со своим временем объекта - иначе часть времени показана только
       // в строке объекта, и найти ее на экране негде.
       Check(Passed,Total,Report,ChkWorkSeenTxt,
-        (Hits > 0) AND (ABS(ObjSelf - SumSelf) <= 0.001),
-        STRSUBSTNO(WorkSeenTxt,Hits,ObjSelf,SumSelf));
+        (Hits > 0) AND (ABS(ObjSelf - SumSelf) <= 0.001) AND (Frame = 0),
+        STRSUBSTNO(WorkSeenTxt,Hits,ObjSelf,SumSelf,Frame));
     END;
 
     LOCAL PROCEDURE RootChildless@164(VAR TempLine@1000000000 : TEMPORARY Record 110200) : Integer;
@@ -8854,6 +8955,70 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       IF Started AND (Kids = 0) THEN
         Childless := Childless + 1;
       EXIT(Childless);
+    END;
+
+    LOCAL PROCEDURE CheckBodyNav@170(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
+    VAR
+      TempLine@1000000003 : TEMPORARY Record 110200;
+      Demo@1000000004 : Codeunit 110201;
+      Acc@1000000005 : Decimal;
+      Index@1000000006 : Integer;
+      HeadEntry@1000000007 : Integer;
+      Before@1000000008 : Integer;
+      After@1000000009 : Integer;
+      Heads@1000000010 : Integer;
+      Ret@1000000011 : Integer;
+      Opened@1000000012 : Boolean;
+    BEGIN
+      // Обычная процедура стоит на корне заголовком со своим временем, а строк под ним
+      // нет: тело на корне раскрыто только у точек входа. Проверяем щелчок целиком -
+      // было пусто, стало тело, заголовок остался ОДИН. Без последнего условия правка,
+      // показывающая заголовок дважды, прошла бы проверку.
+      StartTrace(0,0,0,0);
+      FOR Index := 1 TO 50 DO
+        Demo.RunPlainWork(Index,Acc);
+      StopTrace;
+      BuildResult(TempLine,0,0,TRUE);
+      NavRoot(TempLine);
+
+      HeadEntry := PlainRows(TempLine,Heads,Before);
+      IF HeadEntry > 0 THEN
+        Opened := NavBody(TempLine,HeadEntry,Ret);
+      IF Opened THEN
+        HeadEntry := PlainRows(TempLine,Heads,After);
+
+      Check(Passed,Total,Report,ChkBodyNavTxt,
+        Opened AND (Before = 0) AND (After > 0) AND (Heads = 1),
+        STRSUBSTNO(BodyNavTxt,Before,After,Heads));
+    END;
+
+    LOCAL PROCEDURE PlainRows@171(VAR TempLine@1000000000 : TEMPORARY Record 110200;VAR Heads@1000000001 : Integer;VAR CodeRows@1000000002 : Integer) : Integer;
+    VAR
+      Cur@1000000003 : TEMPORARY Record 110200;
+      Found@1000000004 : Integer;
+    BEGIN
+      // Строки обкаточной процедуры в СОБРАННОМ виде: сколько заголовков и сколько
+      // строк кода. Ищем по имени - оно свое во всем замере.
+      Heads := 0;
+      CodeRows := 0;
+      Cur.COPY(TempLine,TRUE);
+      Cur.RESET;
+      IF NOT Cur.FINDSET THEN
+        EXIT(0);
+      REPEAT
+        CASE Cur."Line Type" OF
+          Cur."Line Type"::"Trigger/Function":
+            IF STRPOS(UPPERCASE(Cur.Line),'RUNPLAINWORK') = 1 THEN BEGIN
+              Heads := Heads + 1;
+              IF Found = 0 THEN
+                Found := Cur."Source Entry No.";
+            END;
+          Cur."Line Type"::Code:
+            IF STRPOS(UPPERCASE(Cur."Function Name"),'RUNPLAINWORK') = 1 THEN
+              CodeRows := CodeRows + 1;
+        END;
+      UNTIL Cur.NEXT = 0;
+      EXIT(Found);
     END;
 
     LOCAL PROCEDURE CheckTreeNav@107(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
@@ -9127,6 +9292,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       CheckSubscriberNav(Passed,Total,Report);
       CheckDoorlessNav(Passed,Total,Report);
       CheckWorkVisible(Passed,Total,Report);
+      CheckBodyNav(Passed,Total,Report);
       CheckTreeNav(Passed,Total,Report);
       CheckKeyAdvice(Passed,Total,Report);
       // Самой ПОСЛЕДНЕЙ: она поднимает журнал покрытия и гасит его аварийно, и делать
@@ -9551,6 +9717,10 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       DD 19.08.2026 LineProfiler Обкатка: объект, в который вошли прямым вызовом метода, открывается с корня.
       DD 20.08.2026 LineProfiler Отработавшая функция видна под своим объектом, даже когда она не точка входа.
       DD 20.08.2026 LineProfiler Обкатка: работа обычной процедуры видна под объектом, у которого точки входа пусты.
+      DD 20.08.2026 LineProfiler Тело обычной процедуры раскрывается с ее заголовка на корне отдельным узлом.
+      DD 20.08.2026 LineProfiler Имя функции у строки берется одним местом: у заголовка его нет полем.
+      DD 20.08.2026 LineProfiler Обкатка: щелчок по заголовку раскрывает тело, заголовок при этом не двоится.
+      DD 20.08.2026 LineProfiler Каркасную строку тянет только строка кода: под заголовком без тела BEGIN и END не показываются.
     }
     END.
   }
