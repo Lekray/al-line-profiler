@@ -4929,7 +4929,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
 {
   OBJECT-PROPERTIES
   {
-    Date=19.08.26;
+    Date=20.08.26;
     Time=12:00:00;
     Modified=Yes;
     Version List=ALProfiler;
@@ -5055,6 +5055,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       ChkRootDoorTxt@1000000139 : TextConst 'ENU=no object on the root level is a dead end;RUS=ни один объект на корне не тупик';
       ChkDoorlessTxt@1000000141 : TextConst 'ENU=an object entered by a plain call is open from the root;RUS=объект, в который вошли прямым вызовом, открывается с корня';
       DoorlessTxt@1000000142 : TextConst 'ENU=children under it %1, dead ends in the view %2;RUS=потомков под ним %1, тупиков в виде %2';
+      ChkWorkSeenTxt@1000000143 : TextConst 'ENU=work of a plain procedure is visible under its object;RUS=работа обычной процедуры видна под своим объектом';
+      WorkSeenTxt@1000000144 : TextConst 'ENU=hits under it %1, object self ms %2, sum under it %3;RUS=выполнений под ним %1, свое время объекта %2, сумма под ним %3';
       RootDoorTxt@1000000140 : TextConst 'ENU=objects without a single child: %1;RUS=объектов без единого потомка: %1';
       HeadersTxt@1000000076 : TextConst 'ENU=headers %1, broken %2;RUS=заголовков %1, нарушений %2';
       ChkCmpTxt@1000000040 : TextConst 'ENU=comparison found lines on both sides;RUS=сравнение нашло строки с обеих сторон';
@@ -7949,6 +7951,18 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       EXIT(STRPOS(DoorlessObjs,'|' + FORMAT(ObjType) + ':' + FORMAT(ObjID) + '|') > 0);
     END;
 
+    LOCAL PROCEDURE Ran@166(VAR Line@1000000000 : Record 110200) : Boolean;
+    BEGIN
+      // "Отработала" - это любой след, а не только время. Выполнения дает журнал
+      // покрытия, время - трассировка, и они расходятся в обе стороны: строка могла
+      // выполниться, а события по ней не доехать - тогда времени нет, но работа была;
+      // у пустой функции-издателя события своих строк нет вовсе, и есть только замер.
+      // Проверять что-то одно значило бы снова спрятать половину случаев.
+      EXIT(
+        (Line."No. of Hits" > 0) OR (Line."Timed Hits" > 0) OR Line.Measured OR
+        (Line."Self ms" <> 0) OR (Line."Total ms" <> 0));
+    END;
+
     LOCAL PROCEDURE BuildRootFuncs@106();
     VAR
       Anchor@1000000000 : TEMPORARY Record 110200;
@@ -8160,15 +8174,23 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
         EXIT(FALSE);
       IF NodeNo = 0 THEN BEGIN
         IF NOT IsEntryPoint(FuncName) THEN BEGIN
-          // У объекта без единой точки входа на корень пускаем ЗАГОЛОВКИ его функций:
-          // иначе строка объекта - глухой тупик, и до собранных строк кода не добраться
-          // вовсе. Строки кода прячем по-прежнему, иначе корень развернулся бы в полный
-          // листинг. Проверка стоит ПОСЛЕ отбора по типу строки: Doorless зовется только
-          // на заголовки, которых на порядки меньше, чем строк кода.
+          // На корень, кроме точек входа, пускаем ЗАГОЛОВКИ функций - но только их:
+          // строки кода прячем по-прежнему, иначе корень развернулся бы в полный
+          // листинг. Обе проверки стоят ПОСЛЕ отбора по типу строки - они зовутся
+          // только на заголовки, которых на порядки меньше, чем строк кода.
           IF Line."Line Type" <> Line."Line Type"::"Trigger/Function" THEN
             EXIT(FALSE);
-          IF NOT Doorless(Line."Object Type",Line."Object ID") THEN
-            EXIT(FALSE);
+          // Функция, которая ОТРАБОТАЛА, обязана быть видна под своим объектом: ее
+          // время уже сложено в строку объекта, и спрятать ее значит показать время,
+          // которого на экране больше нигде нет. Так это и выглядело: объект несет свои
+          // миллисекунды, под ним две пустые точки входа, а куда ушло время - не сказано
+          // вовсе. Точкой входа такая функция не считается и считаться не должна: в нее
+          // вошли прямым вызовом, платформа о ней не знает ничего.
+          IF NOT Ran(Line) THEN
+            // Объект, в замер которого не попало НИ ОДНОЙ точки входа, открываем и без
+            // выполнений: иначе его строка - глухой тупик, и до листинга не добраться.
+            IF NOT Doorless(Line."Object Type",Line."Object ID") THEN
+              EXIT(FALSE);
         END;
         // По настройке на экране остается либо весь список точек входа, либо только те,
         // из которых ушли вглубь.
@@ -8757,6 +8779,55 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
         STRSUBSTNO(DoorlessTxt,Kids,Childless));
     END;
 
+    LOCAL PROCEDURE CheckWorkVisible@167(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
+    VAR
+      TempLine@1000000003 : TEMPORARY Record 110200;
+      Demo@1000000004 : Codeunit 110201;
+      Acc@1000000005 : Decimal;
+      Index@1000000006 : Integer;
+      Seen@1000000007 : Boolean;
+      Hits@1000000008 : Integer;
+      ObjSelf@1000000009 : Decimal;
+      SumSelf@1000000010 : Decimal;
+    BEGIN
+      // Время объекта обязано быть видно ПОД объектом. Точки входа у него тут есть -
+      // подписчики событий с именами на On, - но в этот раз их никто не поднимал, а
+      // работала обычная процедура. Галку "только выполненные строки" снимаем
+      // намеренно: с ней пустые точки входа отсеиваются сами и объект становится
+      // бездверным, а вся соль случая в том, что двери есть и они пустые. До правки под
+      // объектом висели одни нули, а его миллисекунды не показывались нигде.
+      StartTrace(0,0,0,0);
+      FOR Index := 1 TO 50 DO
+        Demo.RunPlainWork(Index,Acc);
+      StopTrace;
+      BuildResult(TempLine,0,0,FALSE);
+      NavRoot(TempLine);
+
+      TempLine.RESET;
+      IF TempLine.FINDSET THEN
+        REPEAT
+          IF TempLine."Line Type" = TempLine."Line Type"::Object THEN BEGIN
+            Seen := (TempLine."Object Type" = TempLine."Object Type"::CodeUnit) AND
+                    (TempLine."Object ID" = 110201);
+            IF Seen THEN
+              ObjSelf := TempLine."Self ms";
+          END ELSE
+            IF Seen THEN BEGIN
+              SumSelf := SumSelf + TempLine."Self ms";
+              IF TempLine."No. of Hits" > Hits THEN
+                Hits := TempLine."No. of Hits";
+            END;
+        UNTIL TempLine.NEXT = 0;
+
+      // Судим по двум числам сразу. Выполнения - главное: они идут от журнала покрытия
+      // и не зависят от того, доехали ли события. Сумма своего времени видимых потомков
+      // обязана сойтись со своим временем объекта - иначе часть времени показана только
+      // в строке объекта, и найти ее на экране негде.
+      Check(Passed,Total,Report,ChkWorkSeenTxt,
+        (Hits > 0) AND (ABS(ObjSelf - SumSelf) <= 0.001),
+        STRSUBSTNO(WorkSeenTxt,Hits,ObjSelf,SumSelf));
+    END;
+
     LOCAL PROCEDURE RootChildless@164(VAR TempLine@1000000000 : TEMPORARY Record 110200) : Integer;
     VAR
       Cur@1000000001 : TEMPORARY Record 110200;
@@ -9055,6 +9126,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // а все проверки выше читают показания прежнего прогона.
       CheckSubscriberNav(Passed,Total,Report);
       CheckDoorlessNav(Passed,Total,Report);
+      CheckWorkVisible(Passed,Total,Report);
       CheckTreeNav(Passed,Total,Report);
       CheckKeyAdvice(Passed,Total,Report);
       // Самой ПОСЛЕДНЕЙ: она поднимает журнал покрытия и гасит его аварийно, и делать
@@ -9477,6 +9549,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       DD 19.08.2026 LineProfiler Объект без точки входа больше не тупик: на корне показываются заголовки его функций.
       DD 19.08.2026 LineProfiler Обкатка: ни один объект на корне не остается без потомков.
       DD 19.08.2026 LineProfiler Обкатка: объект, в который вошли прямым вызовом метода, открывается с корня.
+      DD 20.08.2026 LineProfiler Отработавшая функция видна под своим объектом, даже когда она не точка входа.
+      DD 20.08.2026 LineProfiler Обкатка: работа обычной процедуры видна под объектом, у которого точки входа пусты.
     }
     END.
   }
