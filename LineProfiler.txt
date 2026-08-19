@@ -4929,7 +4929,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
 {
   OBJECT-PROPERTIES
   {
-    Date=18.08.26;
+    Date=19.08.26;
     Time=12:00:00;
     Modified=Yes;
     Version List=ALProfiler;
@@ -5052,6 +5052,10 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       ChkSumTxt@1000000038 : TextConst 'ENU=sum of the line times equals the run total;RUS=сумма времени строк сошлась с итогом замера';
       ChkSqlLeTxt@1000000039 : TextConst 'ENU=SQL time does not exceed the line time;RUS=время SQL не превышает время строки';
       ChkInclTxt@1000000075 : TextConst 'ENU=full time of function headers is not below their own time;RUS=полное время заголовков функций не меньше своего';
+      ChkRootDoorTxt@1000000139 : TextConst 'ENU=no object on the root level is a dead end;RUS=ни один объект на корне не тупик';
+      ChkDoorlessTxt@1000000141 : TextConst 'ENU=an object entered by a plain call is open from the root;RUS=объект, в который вошли прямым вызовом, открывается с корня';
+      DoorlessTxt@1000000142 : TextConst 'ENU=children under it %1, dead ends in the view %2;RUS=потомков под ним %1, тупиков в виде %2';
+      RootDoorTxt@1000000140 : TextConst 'ENU=objects without a single child: %1;RUS=объектов без единого потомка: %1';
       HeadersTxt@1000000076 : TextConst 'ENU=headers %1, broken %2;RUS=заголовков %1, нарушений %2';
       ChkCmpTxt@1000000040 : TextConst 'ENU=comparison found lines on both sides;RUS=сравнение нашло строки с обеих сторон';
       ChkQueriesTxt@1000000041 : TextConst 'ENU=queries collected;RUS=запросы SQL собраны';
@@ -5071,6 +5075,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       ShiftVotes@1000000135 : ARRAY [2] OF Integer;
       RootFuncs@1000000072 : Text;
       RootFuncOnly@1000000073 : Boolean;
+      DoorlessObjs@1000000138 : Text;
       GrandSelfSaved@1000000077 : Decimal;
       EdgesLive@1000000078 : Boolean;
       AdviseKeys@1000000094 : Boolean;
@@ -7889,8 +7894,59 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       TempLine.DELETEALL;
       Seq := 0;
       BuildRootFuncs;
+      BuildDoorless;
       EmitLevel(TempLine,0,0,Seq,0);
       TempLine.RESET;
+    END;
+
+    LOCAL PROCEDURE BuildDoorless@162();
+    VAR
+      Cur@1000000000 : TEMPORARY Record 110200;
+      WithDoor@1000000001 : Text;
+      Mark@1000000002 : Text;
+      FuncName@1000000003 : Text[250];
+      ObjType@1000000004 : Integer;
+    BEGIN
+      // Корень показывает точки входа - то, что платформа зовет сама. Объект, у которого
+      // в замер не попало НИ ОДНОЙ такой функции, оставался на корне глухим: время
+      // видно, а войти некуда, и почему - на экране не сказано. Так выглядит почти любой
+      // кодюнит-одиночка: в него входят прямым вызовом метода, а его OnRun пуст, ничего
+      // не выполняет и точкой входа в замере не становится.
+      //
+      // Поэтому объекты без двери считаем ОДИН раз на сборку вида, а не из VisibleAt:
+      // та зовется на каждую строку листинга, и скан внутри нее дал бы квадрат.
+      DoorlessObjs := '';
+      Cur.COPY(FullLine,TRUE);
+
+      Cur.RESET;
+      Cur.SETRANGE("Line Type",Cur."Line Type"::"Trigger/Function");
+      IF Cur.FINDSET THEN
+        REPEAT
+          FuncName := COPYSTR(DELCHR(Cur.Line,'<>',' '),1,MAXSTRLEN(FuncName));
+          IF (FuncName <> '') AND IsEntryPoint(FuncName) THEN BEGIN
+            ObjType := Cur."Object Type";
+            Mark := '|' + FORMAT(ObjType) + ':' + FORMAT(Cur."Object ID") + '|';
+            IF STRPOS(WithDoor,Mark) = 0 THEN
+              WithDoor := WithDoor + Mark;
+          END;
+        UNTIL Cur.NEXT = 0;
+
+      Cur.RESET;
+      Cur.SETRANGE("Line Type",Cur."Line Type"::Object);
+      IF Cur.FINDSET THEN
+        REPEAT
+          ObjType := Cur."Object Type";
+          Mark := '|' + FORMAT(ObjType) + ':' + FORMAT(Cur."Object ID") + '|';
+          IF (STRPOS(WithDoor,Mark) = 0) AND (STRPOS(DoorlessObjs,Mark) = 0) THEN
+            DoorlessObjs := DoorlessObjs + Mark;
+        UNTIL Cur.NEXT = 0;
+    END;
+
+    LOCAL PROCEDURE Doorless@163(ObjType@1000000000 : Integer;ObjID@1000000001 : Integer) : Boolean;
+    BEGIN
+      IF DoorlessObjs = '' THEN
+        EXIT(FALSE);
+      EXIT(STRPOS(DoorlessObjs,'|' + FORMAT(ObjType) + ':' + FORMAT(ObjID) + '|') > 0);
     END;
 
     LOCAL PROCEDURE BuildRootFuncs@106();
@@ -8103,8 +8159,17 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       IF FuncName = '' THEN
         EXIT(FALSE);
       IF NodeNo = 0 THEN BEGIN
-        IF NOT IsEntryPoint(FuncName) THEN
-          EXIT(FALSE);
+        IF NOT IsEntryPoint(FuncName) THEN BEGIN
+          // У объекта без единой точки входа на корень пускаем ЗАГОЛОВКИ его функций:
+          // иначе строка объекта - глухой тупик, и до собранных строк кода не добраться
+          // вовсе. Строки кода прячем по-прежнему, иначе корень развернулся бы в полный
+          // листинг. Проверка стоит ПОСЛЕ отбора по типу строки: Doorless зовется только
+          // на заголовки, которых на порядки меньше, чем строк кода.
+          IF Line."Line Type" <> Line."Line Type"::"Trigger/Function" THEN
+            EXIT(FALSE);
+          IF NOT Doorless(Line."Object Type",Line."Object ID") THEN
+            EXIT(FALSE);
+        END;
         // По настройке на экране остается либо весь список точек входа, либо только те,
         // из которых ушли вглубь.
         IF RootFuncOnly AND (RootFuncs <> '') THEN
@@ -8575,6 +8640,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       Matched@1000000015 : Integer;
       Cr@1000000016 : Char;
       Lf@1000000017 : Char;
+      Childless@1000000018 : Integer;
     BEGIN
       // Провал в ПОДПИСЧИКА проверяем на собственном событии: подписчик лежит в другом
       // объекте, и в тексте строки его имени нет вовсе - ровно тот случай, ради которого
@@ -8639,7 +8705,84 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
 
       Check(Passed,Total,Report,ChkSubNavTxt,SubLines > 0,
         STRSUBSTNO(SubNavTxt,FromEntry,SubLines));
+
+      // Корень обязан быть проходим НАСКВОЗЬ: объект, у которого не нашлось точки входа,
+      // показывает заголовки своих функций, а не пустоту. Проверяем на этом же прогоне -
+      // подписчик лежит в чужом объекте, платформа его не зовет, и раньше корень для
+      // такого объекта был глухим: время на экране есть, а войти некуда. Отказ этого
+      // рода выглядит как успех - строки собраны, здоровье зеленое, - поэтому он и
+      // прожил до объекта.
       NavRoot(TempLine);
+      Childless := RootChildless(TempLine);
+      Check(Passed,Total,Report,ChkRootDoorTxt,Childless = 0,
+        STRSUBSTNO(RootDoorTxt,Childless));
+    END;
+
+    LOCAL PROCEDURE CheckDoorlessNav@165(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
+    VAR
+      TempLine@1000000003 : TEMPORARY Record 110200;
+      Demo@1000000004 : Codeunit 110201;
+      Acc@1000000005 : Decimal;
+      Index@1000000006 : Integer;
+      Kids@1000000007 : Integer;
+      Seen@1000000008 : Boolean;
+      Childless@1000000009 : Integer;
+    BEGIN
+      // Объект, в который вошли ПРЯМЫМ ВЫЗОВОМ метода. Платформа его не зовет, имени на
+      // On у вызванной функции нет, а пустой OnRun при включенной галке "только
+      // выполненные" сносится вместе с признаком точки входа - и до правки такой объект
+      // висел на корне глухим: время видно, а войти некуда. Так устроена почти вся
+      // прикладная логика: кодюнит-одиночка, в который зовут методом, и случай этот
+      // куда обычнее подписчика.
+      StartTrace(0,0,0,0);
+      FOR Index := 1 TO 50 DO
+        Demo.RunPlainWork(Index,Acc);
+      StopTrace;
+      BuildResult(TempLine,0,0,TRUE);
+      NavRoot(TempLine);
+
+      TempLine.RESET;
+      IF TempLine.FINDSET THEN
+        REPEAT
+          IF TempLine."Line Type" = TempLine."Line Type"::Object THEN
+            Seen := (TempLine."Object Type" = TempLine."Object Type"::CodeUnit) AND
+                    (TempLine."Object ID" = 110201)
+          ELSE
+            IF Seen THEN
+              Kids := Kids + 1;
+        UNTIL TempLine.NEXT = 0;
+
+      Childless := RootChildless(TempLine);
+      Check(Passed,Total,Report,ChkDoorlessTxt,(Kids > 0) AND (Childless = 0),
+        STRSUBSTNO(DoorlessTxt,Kids,Childless));
+    END;
+
+    LOCAL PROCEDURE RootChildless@164(VAR TempLine@1000000000 : TEMPORARY Record 110200) : Integer;
+    VAR
+      Cur@1000000001 : TEMPORARY Record 110200;
+      Childless@1000000002 : Integer;
+      Kids@1000000003 : Integer;
+      Started@1000000004 : Boolean;
+    BEGIN
+      // Сколько строк объектов на корне не имеют под собой ни одной строки. Считаем по
+      // готовому виду, а не по замыслу: именно вид и видит человек.
+      Cur.COPY(TempLine,TRUE);
+      Cur.RESET;
+      IF NOT Cur.FINDSET THEN
+        EXIT(0);
+      REPEAT
+        IF Cur."Line Type" = Cur."Line Type"::Object THEN BEGIN
+          IF Started AND (Kids = 0) THEN
+            Childless := Childless + 1;
+          Started := TRUE;
+          Kids := 0;
+        END ELSE
+          IF Started THEN
+            Kids := Kids + 1;
+      UNTIL Cur.NEXT = 0;
+      IF Started AND (Kids = 0) THEN
+        Childless := Childless + 1;
+      EXIT(Childless);
     END;
 
     LOCAL PROCEDURE CheckTreeNav@107(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
@@ -8665,9 +8808,9 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
     BEGIN
       // Раскрытые места - ДЕРЕВО, а не один путь: соседний вызов обязан раскрываться,
       // не закрывая уже раскрытый, а закрытие одного не должно гасить другой.
-      // Мерим ДЕМОНСТРАЦИЮ: у нее есть точки входа с настоящими вызовами, а у самой
-      // обкатки корень пуст - ее функции платформа не зовет, значит и раскрывать
-      // нечего. Строк берем немного: проверяем раскрытие, а не нагрузку.
+      // Мерим ДЕМОНСТРАЦИЮ: у нее есть точки входа с настоящими вызовами - раскрытие
+      // проверяется на настоящем дереве, а не на заголовках объекта без двери, которые
+      // корень показывает и сам. Строк берем немного: проверяем раскрытие, а не нагрузку.
       RunDemo(200,TempLine);
       NavRoot(TempLine);
       TempLine.RESET;
@@ -8911,6 +9054,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // Ставим ПОСЛЕДНИМИ: каждая снимает свой замер и затирает состояние приемника,
       // а все проверки выше читают показания прежнего прогона.
       CheckSubscriberNav(Passed,Total,Report);
+      CheckDoorlessNav(Passed,Total,Report);
       CheckTreeNav(Passed,Total,Report);
       CheckKeyAdvice(Passed,Total,Report);
       // Самой ПОСЛЕДНЕЙ: она поднимает журнал покрытия и гасит его аварийно, и делать
@@ -9330,6 +9474,9 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       DD 18.08.2026 LineProfiler Аварийное выключение гасит журнал покрытия обоими признаками.
       DD 18.08.2026 LineProfiler Смещение номера строки снимается сверкой текстов, а не зашито.
       DD 18.08.2026 LineProfiler Отбор запросов и ребер вызова идет снятым смещением, а не зашитой единицей.
+      DD 19.08.2026 LineProfiler Объект без точки входа больше не тупик: на корне показываются заголовки его функций.
+      DD 19.08.2026 LineProfiler Обкатка: ни один объект на корне не остается без потомков.
+      DD 19.08.2026 LineProfiler Обкатка: объект, в который вошли прямым вызовом метода, открывается с корня.
     }
     END.
   }
@@ -9339,7 +9486,7 @@ OBJECT Codeunit 110201 AL Profiler Demo Subscriber
 {
   OBJECT-PROPERTIES
   {
-    Date=17.08.26;
+    Date=19.08.26;
     Time=12:00:00;
     Modified=Yes;
     Version List=ALProfiler;
@@ -9364,6 +9511,17 @@ OBJECT Codeunit 110201 AL Profiler Demo Subscriber
         Acc := Acc + (Seed + Index) MOD 5;
     END;
 
+    PROCEDURE RunPlainWork@3(Seed@1000000000 : Integer;VAR Acc@1000000001 : Decimal);
+    VAR
+      Index@1000000002 : Integer;
+    BEGIN
+      // Обычная процедура с обычным именем: ее зовут напрямую, платформа о ней не знает
+      // ничего. Ради нее объект и попадает в замер без единой точки входа - тот самый
+      // случай, на котором корень оставался глухим.
+      FOR Index := 1 TO 5 DO
+        Acc := Acc + Seed / (Index + 1);
+    END;
+
     [EventSubscriber(Report,110200,OnDemoEvent)]
     LOCAL PROCEDURE OnDemoEvent@1(Seed@1000000000 : Integer;VAR Acc@1000000001 : Decimal);
     VAR
@@ -9385,6 +9543,7 @@ OBJECT Codeunit 110201 AL Profiler Demo Subscriber
       DD 17.08.2026 LineProfiler Подсказка целиком по щелчку; отбор запросов с заголовка функции сужается до ее запросов.
       DD 17.08.2026 LineProfiler Снятие значений параметров SQL сеансом расширенных событий - за настройкой, по умолчанию выключено.
       DD 17.08.2026 LineProfiler Значения параметров запроса снимаются с сервера и встают в блок DECLARE вместо NULL.
+      DD 19.08.2026 LineProfiler Обычная процедура RunPlainWork: объект без точки входа для обкатки корня.
     }
     END.
   }
