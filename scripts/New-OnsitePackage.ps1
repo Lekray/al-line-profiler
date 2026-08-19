@@ -28,7 +28,7 @@
     pwsh scripts/New-OnsitePackage.ps1
 #>
 [CmdletBinding()]
-param([string]$OutDir, [string]$Previous, [switch]$NoChanges)
+param([string]$OutDir, [string]$Previous, [string]$TraceEvent, [switch]$NoChanges)
 
 $ErrorActionPreference = 'Stop'
 
@@ -62,7 +62,7 @@ $stage = Join-Path $env:TEMP ('lineprofiler-package-' + [guid]::NewGuid().ToStri
 New-Item -ItemType Directory -Path $stage | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $stage 'objects')  | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $stage 'receiver') | Out-Null
-New-Item -ItemType Directory -Path (Join-Path $stage 'receiver\variants') | Out-Null
+if (-not $TraceEvent) { New-Item -ItemType Directory -Path (Join-Path $stage 'receiver\variants') | Out-Null }
 
 Copy-Item (Join-Path $onsiteDir '*.ps1') $stage
 Copy-Item (Join-Path $onsiteDir 'README.md') $stage
@@ -73,7 +73,33 @@ Copy-Item $dll (Join-Path $stage 'receiver')
 # Варианты той же нашей сборки под другие версии TraceEvent - на случай сервера
 # без компилятора. Саму TraceEvent не везём: она уже на сервере, и её лицензия
 # распространение не разрешает (см. THIRD-PARTY-NOTICES.md).
-if (Test-Path $variants) { Copy-Item (Join-Path $variants '*.dll') (Join-Path $stage 'receiver\variants') }
+# Версия TraceEvent на целевом сервере известна - значит и вариант приёмника нужен один.
+# Остальные весят по 29 КБ каждый, а пакет едет телом письма, где это уже деньги. Ключ,
+# а не умолчание: выбросить запасные варианты можно только ЗНАЯ версию, иначе шаг 3 на
+# сервере без компилятора останется без готовой сборки вовсе.
+if (Test-Path $variants) {
+    $take = @(Get-ChildItem (Join-Path $variants '*.dll'))
+    if ($TraceEvent) {
+        $want = Join-Path $variants ("AlLineProfiler-TraceEvent-$TraceEvent.dll")
+        if (-not (Test-Path $want)) { throw "в dist\variants нет варианта под TraceEvent $TraceEvent" }
+        # Основная сборка пакета ОБЯЗАНА быть тем же файлом: иначе в receiver\ уедет одна
+        # версия, а в variants\ - другая, и на сервере это всплывёт молчащим приёмником,
+        # а не отказом при установке.
+        if ((Get-FileHash $want -Algorithm SHA256).Hash -ne (Get-FileHash $dll -Algorithm SHA256).Hash) {
+            throw "dist\AlLineProfiler.dll не совпадает с вариантом под TraceEvent $TraceEvent"
+        }
+        # Дальше запасные варианты не кладутся ВОВСЕ: нужный уже лежит в receiver\ под
+        # своим обычным именем, и второй его копией пакет только растолстел бы на 29 КБ.
+        # Шаг 3 находит его сам - он спрашивает версию у ссылки внутри сборки.
+        $take = @()
+    }
+    if ($take.Count) {
+        $take | Copy-Item -Destination (Join-Path $stage 'receiver\variants')
+        Step ("запасные варианты: " + (($take | ForEach-Object { $_.BaseName -replace '^AlLineProfiler-TraceEvent-', '' }) -join ', '))
+    } else {
+        Step ("приёмник один, под TraceEvent $TraceEvent - запасных вариантов в пакете нет")
+    }
+}
 Step 'состав собран'
 
 # 2. Манифест: в контуре нет ни git, ни сети, и по нему на месте видно, что именно
@@ -84,6 +110,8 @@ $lines = @(
     'Пакет: построчный профайлер C/AL',
     "Собран: $stamp",
     "Исходник: коммит $commit",
+    $(if ($TraceEvent) { "Приёмник: собран против TraceEvent $TraceEvent - версии на целевом сервере" }
+      else { 'Приёмник: основная сборка плюс запасные варианты под другие версии TraceEvent' }),
     '',
     'Файл                                     Размер  SHA256'
 )

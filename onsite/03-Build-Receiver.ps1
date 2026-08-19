@@ -10,8 +10,10 @@
     вопрос совместимости по построению. Исходник этого не замечает - он собирается
     без правок против 1.0.11, 1.0.26, 1.0.39 и 2.0.64.
 
-    Если компилятора на сервере нет, берётся готовая сборка из пакета - тот её
-    вариант, что отвечает версии TraceEvent на этом сервере.
+    Если компилятора на сервере нет, берётся готовая сборка из пакета - та, чья
+    ССЫЛКА отвечает версии TraceEvent на этом сервере. Версия спрашивается у самой
+    сборки, а не читается из имени файла: имя при пересборке пакета можно перепутать,
+    ссылку внутри сборки - нет.
 
     Саму TraceEvent пакет НЕ везёт: её версии до 2.0.30 лицензия Microsoft
     распространять не разрешает, да это и не нужно - библиотека уже здесь.
@@ -79,6 +81,19 @@ function Test-SameTeVersion([string]$A, [string]$B) {
     return ($x.Major -eq $y.Major -and $x.Minor -eq $y.Minor -and $x.Build -eq $y.Build)
 }
 
+# Против какой TraceEvent собран готовый файл - спрашиваем у него самого. Связывание
+# идёт по строгому имени, а строгое имя лежит в ссылке; имя файла к делу отношения не
+# имеет и врёт при первой же пересборке пакета.
+function Get-TeReference([string]$Path) {
+    if (-not (Test-Path $Path)) { return '' }
+    $asm = $null
+    try { $asm = [Reflection.Assembly]::ReflectionOnlyLoadFrom($Path) } catch { return '' }
+    foreach ($r in $asm.GetReferencedAssemblies()) {
+        if ($r.Name -eq 'Microsoft.Diagnostics.Tracing.TraceEvent') { return $r.Version.ToString() }
+    }
+    return ''
+}
+
 # Служба отпускает файл не в момент перехода в Stopped, а когда процесс НА САМОМ ДЕЛЕ
 # завершился. Ждём освобождения самого файла, а не статуса службы: иначе копирование
 # падает с 'used by another process', и выкладка тихо не происходит.
@@ -108,7 +123,14 @@ if ((Test-Path $ctx.Csc) -and (Test-Path $src)) {
 
 if (-not $built) {
     $pick = $null
-    if (Test-Path $variants) {
+    # Сперва основная сборка пакета. Когда версия TraceEvent на сервере известна заранее,
+    # в пакет кладут ровно её вариант, и набора variants там может не быть вовсе: три
+    # лишние сборки по 29 КБ дороги, когда пакет едет телом письма.
+    $main   = Join-Path $PSScriptRoot 'receiver\AlLineProfiler.dll'
+    $mainTe = Get-TeReference $main
+    if ($mainTe) { Line 'В пакете' ("AlLineProfiler.dll собран против TraceEvent $mainTe") }
+    if ($mainTe -and (Test-SameTeVersion $mainTe $te.Version)) { $pick = Get-Item $main }
+    if ((-not $pick) -and (Test-Path $variants)) {
         foreach ($f in (Get-ChildItem $variants -Filter 'AlLineProfiler-TraceEvent-*.dll')) {
             $v = $f.BaseName -replace '^AlLineProfiler-TraceEvent-', ''
             if (Test-SameTeVersion $v $te.Version) { $pick = $f; break }

@@ -21,7 +21,8 @@ Line 'Компания'       $ctx.Company
 Line 'finsql'         $(if ($ctx.Finsql) { $ctx.Finsql } else { 'НЕ НАЙДЕН - объекты придётся импортировать из C/SIDE вручную' })
 
 # Полная трассировка вызовов C/AL: без неё событие оператора не шлётся вовсе и замер
-# выходит пустым. В NAV 2017 её переключение требует ПЕРЕЗАПУСКА инстанции.
+# выходит пустым. Лежит она в CustomSettings.config инстанции - значит правка требует
+# ПЕРЕЗАПУСКА инстанции, а не только галки.
 $full = $ctx.Settings['EnableFullALFunctionTracing']
 if ($null -eq $full) { $full = '(нет в конфиге)' }
 Line 'FullALFunctionTracing' $full
