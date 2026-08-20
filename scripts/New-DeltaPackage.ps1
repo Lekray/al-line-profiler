@@ -18,8 +18,11 @@
     нужен, когда база сравнения ещё не заведена или уехало что-то другое.
 
 .PARAMETER ObjectsOnly
-    Отдать ГОЛЫЕ объекты: <имя>.cp866.txt для импорта и <имя>.txt для чтения. Без zip,
-    без README и без манифеста - когда нужен просто файл, который импортируют.
+    Отдать ГОЛЫЕ объекты, без zip, README и манифеста - когда нужен просто файл, который
+    импортируют. Файл на отправку кладётся в out\send и лежит там ОДИН: каталог чистится
+    при каждой сборке, поэтому правило без оговорок - отправлять всё, что в нём лежит.
+    Тот же текст в UTF-8 остаётся в out\read, для чтения глазами, и рядом с отправляемым
+    не лежит НИКОГДА: пока два похожих имени соседствовали, однажды уехало не то.
 
 .PARAMETER Previous
     Пакет, с которым сравнивать, вместо delivered.txt.
@@ -186,15 +189,41 @@ $body = ($take | ForEach-Object { $cur[$_] }) -join ''
 
 # --- голые объекты -----------------------------------------------------------
 if ($ObjectsOnly) {
-    $txt = Join-Path $OutDir ("LineProfiler-changed-$stamp.txt")
+    # Отправляемый файл лежит ОДИН и в собственном каталоге. Пока соседями по out\ были
+    # вчерашняя дельта и utf8-близнец "для чтения", выбор делался глазами по имени - и
+    # однажды уехал не тот файл. Каталоги чистятся при КАЖДОЙ сборке, поэтому правило
+    # звучит без оговорок: отправлять всё, что лежит в out\send, а там всегда один файл.
+    $send = Join-Path $OutDir 'send'
+    $read = Join-Path $OutDir 'read'
+    foreach ($d in @($send, $read)) {
+        if (Test-Path $d) { Get-ChildItem -LiteralPath $d -Force | Remove-Item -Force -Recurse }
+        else { New-Item -ItemType Directory -Path $d | Out-Null }
+    }
+    # Прежние плоские файлы из корня out\ сносим тем же заходом: оставшись лежать рядом,
+    # они снова стали бы кандидатами на отправку.
+    @(Get-ChildItem -LiteralPath $OutDir -Filter 'LineProfiler-changed-*' -File) |
+        ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
+
+    # Сборка идёт в каталоге для чтения: convert-for-cside кладёт cp866 рядом с исходным
+    # файлом, и уже готовый переносится в send. Так в send не появляется ничего лишнего
+    # даже на миг.
+    $txt = Join-Path $read ("LineProfiler-changed-$stamp.txt")
     [IO.File]::WriteAllText($txt, $body, [Text.UTF8Encoding]::new($false))
     & (Join-Path $PSScriptRoot 'convert-for-cside.ps1') -TaskFile $txt | Out-Null
-    $cp = Join-Path $OutDir ("LineProfiler-changed-$stamp.cp866.txt")
-    if (-not (Test-Path $cp)) { throw 'не собрался cp866' }
+    $made = Join-Path $read ("LineProfiler-changed-$stamp.cp866.txt")
+    if (-not (Test-Path $made)) { throw 'не собрался cp866' }
+    $cp = Join-Path $send ("LineProfiler-changed-$stamp.cp866.txt")
+    Move-Item -LiteralPath $made -Destination $cp -Force
+
+    # Сторож на само правило: если в send оказалось не одно, отправлять снова наугад.
+    $inSend = @(Get-ChildItem -LiteralPath $send -Force)
+    if ($inSend.Count -ne 1) { throw ('в out\send файлов ' + $inSend.Count + ', а должен быть ровно один') }
+
     Write-Host ''
     Write-Host 'ИТОГ' -ForegroundColor Green
-    Step ((Split-Path $cp -Leaf)  + "   {0:N0} байт - ИМПОРТИРОВАТЬ ЭТОТ" -f (Get-Item $cp).Length)
-    Step ((Split-Path $txt -Leaf) + "   {0:N0} байт - тот же текст в UTF-8, для чтения" -f (Get-Item $txt).Length)
+    Step ('ОТПРАВЛЯТЬ: out\send\' + (Split-Path $cp -Leaf) + "   {0:N0} байт" -f (Get-Item $cp).Length)
+    Step ('в out\send это единственный файл - брать можно не глядя на имя')
+    Step ('для чтения: out\read\' + (Split-Path $txt -Leaf) + "   {0:N0} байт, UTF-8" -f (Get-Item $txt).Length)
     exit 0
 }
 
