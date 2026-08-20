@@ -30,8 +30,20 @@
 .PARAMETER Record
     Записать delivered.txt по текущему тексту: считать, что эти объекты загружены.
 
+.PARAMETER PartChars
+    Знаков полезной нагрузки в одном письме. По умолчанию 448000 - около 450 КБ тела,
+    столько уходит одним письмом. Умолчание самого упаковщика (44800) резало бы пакет
+    на пяток писем без нужды, а каждое лишнее письмо - это ещё один шанс отправить не
+    то и собрать не в том порядке. Уменьшать, если почта принимающей стороны строже.
+
 .PARAMETER OutDir
     Куда положить. По умолчанию out\ в корне репозитория.
+
+.EXAMPLE
+    pwsh scripts/New-DeltaPackage.ps1
+    Пакет: архив с объектами, APPLY.txt, CHANGES.txt и манифестом - и сразу тело письма,
+    которым он уезжает. Почта контура вложений не принимает, поэтому отправляется НЕ
+    архив, а его текст: письма ложатся в out\send, сам архив - в out\read для сверки.
 
 .EXAMPLE
     pwsh scripts/New-DeltaPackage.ps1 -ObjectsOnly
@@ -46,7 +58,8 @@ param(
     [string] $Previous,
     [string] $OutDir,
     [switch] $ObjectsOnly,
-    [switch] $Record
+    [switch] $Record,
+    [int]    $PartChars = 448000
 )
 
 $ErrorActionPreference = 'Stop'
@@ -308,10 +321,31 @@ foreach ($f in (Get-ChildItem $stage -Recurse -File | Sort-Object FullName)) {
 }
 [IO.File]::WriteAllLines((Join-Path $stage 'MANIFEST.txt'), $lines, [Text.UTF8Encoding]::new($true))
 
-$zip = Join-Path $OutDir ("LineProfiler-delta-$stamp.zip")
+# Каталоги те же, что и у голых объектов: отправляемое - в send, всё прочее - в read.
+$send = Join-Path $OutDir 'send'
+$read = Join-Path $OutDir 'read'
+foreach ($d in @($send, $read)) {
+    if (Test-Path $d) { Get-ChildItem -LiteralPath $d -Force | Remove-Item -Force -Recurse }
+    else { New-Item -ItemType Directory -Path $d | Out-Null }
+}
+@(Get-ChildItem -LiteralPath $OutDir -Filter 'LineProfiler-delta-*' -File) |
+    ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
+
+$zip = Join-Path $read ("LineProfiler-delta-$stamp.zip")
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
 Remove-Item $stage -Recurse -Force
 
+# Тело письма собирается ТЕМ ЖЕ заходом. Почта контура вложений не принимает, поэтому
+# уезжает не архив, а его текст; сам архив остаётся в read - с ним сверяют собранное на
+# той стороне. Вторым шагом руками это забывалось, и в out\ лежал архив, который
+# отправить нельзя, рядом с текстом, который отправить можно.
+& (Join-Path $PSScriptRoot 'ConvertTo-MailBase64.ps1') -Path $zip -OutDir $send -PartChars $PartChars
+$letters = @(Get-ChildItem -LiteralPath $send -Force | Sort-Object Name)
+if ($letters.Count -lt 1) { throw 'тело письма не собралось' }
+
 Write-Host ''
-Write-Host ("ИТОГ: $zip  ({0:N0} КБ)" -f [math]::Round((Get-Item $zip).Length / 1KB)) -ForegroundColor Green
+Write-Host 'ИТОГ' -ForegroundColor Green
+Step ('ОТПРАВЛЯТЬ: всё из out\send, писем ' + $letters.Count)
+foreach ($l in $letters) { Step ('  ' + $l.Name + "   {0:N0} байт" -f $l.Length) }
+Step ('архив для сверки: out\read\' + (Split-Path $zip -Leaf) + "   {0:N0} байт" -f (Get-Item $zip).Length)
