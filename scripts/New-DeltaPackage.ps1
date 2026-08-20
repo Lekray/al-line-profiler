@@ -30,6 +30,12 @@
 .PARAMETER Record
     Записать delivered.txt по текущему тексту: считать, что эти объекты загружены.
 
+.PARAMETER Documentation
+    Documentation-блок для объектов В ПАКЕТЕ. В базе, куда они уезжают, он свой - запись
+    по номеру задачи трекера, - а в git у объектов стоит заголовок проекта. Номер задачи
+    принадлежит установке, репозиторий публичный, поэтому текст задаётся снаружи: этим
+    ключом или переменной LP_DOC_TEXT. Не задан - объекты уедут с тем блоком, что в git.
+
 .PARAMETER PartChars
     Знаков полезной нагрузки в одном письме. По умолчанию 448000 - около 450 КБ тела,
     столько уходит одним письмом. Умолчание самого упаковщика (44800) резало бы пакет
@@ -59,6 +65,7 @@ param(
     [string] $OutDir,
     [switch] $ObjectsOnly,
     [switch] $Record,
+    [string] $Documentation,
     [int]    $PartChars = 448000
 )
 
@@ -200,6 +207,16 @@ if ($removed.Count -gt 0) {
 $stamp = (Get-Date -Format 'yyyyMMdd')
 $body = ($take | ForEach-Object { $cur[$_] }) -join ''
 
+# Documentation в принимающей базе СВОЙ - запись по номеру задачи трекера, и номер этот
+# в публичный репозиторий попасть не может. Подмена идёт здесь, на выходе, и только над
+# копией: рабочий LineProfiler.txt остаётся с заголовком проекта. Через файл, а не своим
+# разбором на месте, - чтобы форму блока знал ровно один скрипт, а не три.
+$tmpDoc = Join-Path $env:TEMP ('lp-doc-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.txt')
+[IO.File]::WriteAllText($tmpDoc, $body, [Text.UTF8Encoding]::new($false))
+& (Join-Path $PSScriptRoot 'Set-Documentation.ps1') -Path $tmpDoc -Text $Documentation
+$body = [IO.File]::ReadAllText($tmpDoc, [Text.UTF8Encoding]::new($false))
+Remove-Item $tmpDoc -Force
+
 # --- голые объекты -----------------------------------------------------------
 if ($ObjectsOnly) {
     # Отправляемый файл лежит ОДИН и в собственном каталоге. Пока соседями по out\ были
@@ -234,9 +251,9 @@ if ($ObjectsOnly) {
 
     Write-Host ''
     Write-Host 'ИТОГ' -ForegroundColor Green
-    Step ('ОТПРАВЛЯТЬ: out\send\' + (Split-Path $cp -Leaf) + "   {0:N0} байт" -f (Get-Item $cp).Length)
-    Step ('в out\send это единственный файл - брать можно не глядя на имя')
-    Step ('для чтения: out\read\' + (Split-Path $txt -Leaf) + "   {0:N0} байт, UTF-8" -f (Get-Item $txt).Length)
+    Step ('ОТПРАВЛЯТЬ: ' + $cp + "   {0:N0} байт" -f (Get-Item $cp).Length)
+    Step ('в этом каталоге он единственный - брать можно не глядя на имя')
+    Step ('для чтения: ' + $txt + "   {0:N0} байт, UTF-8" -f (Get-Item $txt).Length)
     exit 0
 }
 
@@ -346,6 +363,6 @@ if ($letters.Count -lt 1) { throw 'тело письма не собралось
 
 Write-Host ''
 Write-Host 'ИТОГ' -ForegroundColor Green
-Step ('ОТПРАВЛЯТЬ: всё из out\send, писем ' + $letters.Count)
+Step ('ОТПРАВЛЯТЬ: всё из ' + $send + ', писем ' + $letters.Count)
 foreach ($l in $letters) { Step ('  ' + $l.Name + "   {0:N0} байт" -f $l.Length) }
-Step ('архив для сверки: out\read\' + (Split-Path $zip -Leaf) + "   {0:N0} байт" -f (Get-Item $zip).Length)
+Step ('архив для сверки: ' + $zip + "   {0:N0} байт" -f (Get-Item $zip).Length)

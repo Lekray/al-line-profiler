@@ -21,6 +21,11 @@
     Прошлый пакет, с которым сравнивать. По умолчанию берётся самый свежий
     LineProfiler-onsite-*.zip в выходном каталоге, кроме собираемого сейчас.
 
+.PARAMETER Documentation
+    Documentation-блок для объектов В ПАКЕТЕ: в принимающей базе он свой, по номеру
+    задачи трекера. По умолчанию берётся из LP_DOC_TEXT; не задан - объекты уедут
+    с тем блоком, что лежит в git. Подробнее - scripts\Set-Documentation.ps1.
+
 .PARAMETER NoChanges
     Не сравнивать с прошлым пакетом и не класть CHANGES.txt.
 
@@ -28,7 +33,8 @@
     pwsh scripts/New-OnsitePackage.ps1
 #>
 [CmdletBinding()]
-param([string]$OutDir, [string]$Previous, [string]$TraceEvent, [switch]$NoChanges)
+param([string]$OutDir, [string]$Previous, [string]$TraceEvent, [switch]$NoChanges,
+      [string]$Documentation)
 
 $ErrorActionPreference = 'Stop'
 
@@ -68,6 +74,12 @@ Copy-Item (Join-Path $onsiteDir '*.ps1') $stage
 Copy-Item (Join-Path $onsiteDir 'README.md') $stage
 Copy-Item $cp866 (Join-Path $stage 'objects')
 Copy-Item (Join-Path $taskDir 'LineProfiler.txt') (Join-Path $stage 'objects')
+# Documentation правим у КОПИИ в пакете и пересобираем из неё cp866: в репозитории у
+# объектов остаётся заголовок проекта, а в принимающую базу уезжает её собственная
+# запись по номеру задачи. Номера в git нет - он приходит из LP_DOC_TEXT.
+$stageTxt = Join-Path $stage 'objects\LineProfiler.txt'
+& (Join-Path $PSScriptRoot 'Set-Documentation.ps1') -Path $stageTxt -Text $Documentation
+& $conv -TaskFile $stageTxt | Out-Null
 Copy-Item (Join-Path $taskDir 'src\AlLineProfiler.cs') (Join-Path $stage 'receiver')
 Copy-Item $dll (Join-Path $stage 'receiver')
 # Варианты той же нашей сборки под другие версии TraceEvent - на случай сервера
