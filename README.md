@@ -241,7 +241,7 @@ TraceEvent 1.0.11, 1.0.26, 1.0.39 и 2.0.64 — используемая час�
 на диапазон `110200..110207` нужно в обоих случаях одинаково.
 
 ```
-9e37d0cfa7cbf1e1e0ea41c0f610b4880a007acdecf3ec72f14e6326517d8a6e *LineProfiler.fob
+76285ea26788798bcb5a51a1f11ae09b0b4ded61ae4bbc37436bb5c3dc1a9ff5 *LineProfiler.fob
 ```
 
 ## Первый замер
