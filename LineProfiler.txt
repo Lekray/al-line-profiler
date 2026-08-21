@@ -4933,7 +4933,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
 {
   OBJECT-PROPERTIES
   {
-    Date=20.08.26;
+    Date=21.08.26;
     Time=12:00:00;
     Modified=Yes;
     Version List=ALProfiler;
@@ -5063,6 +5063,12 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       WorkSeenTxt@1000000144 : TextConst 'ENU=hits under it %1, object self ms %2, sum under it %3, frame rows under headers %4;RUS=выполнений под ним %1, свое время объекта %2, сумма под ним %3, каркасных строк под заголовками %4';
       ChkBodyNavTxt@1000000146 : TextConst 'ENU=the body of a plain procedure opens from its own header;RUS=тело обычной процедуры раскрывается с ее собственного заголовка';
       BodyNavTxt@1000000147 : TextConst 'ENU=lines before %1, lines after %2, headers %3;RUS=строк до %1, строк после %2, заголовков %3';
+      ChkObjTotalTxt@1000000150 : TextConst 'ENU=object total time holds the time of what it called;RUS=полное время объекта вмещает время того, что он вызвал';
+      ObjTotalTxt@1000000151 : TextConst 'ENU=caller total %1, caller self %2, callee self %3, objects above their own time %4;RUS=полное вызывающего %1, свое вызывающего %2, свое вызванного %3, объектов выше своего времени %4';
+      ChkObjBoundTxt@1000000152 : TextConst 'ENU=no object shows less total time than its own function;RUS=ни один объект не показывает полное время меньше, чем его функция';
+      ObjBoundTxt@1000000153 : TextConst 'ENU=objects %1, broken %2;RUS=объектов %1, нарушений %2';
+      ChkObjKeptTxt@1000000154 : TextConst 'ENU=a loaded run keeps the object total time;RUS=загруженный замер сохраняет полное время объекта';
+      ObjKeptTxt@1000000155 : TextConst 'ENU=saved %1, loaded %2;RUS=сохранено %1, загружено %2';
       RootDoorTxt@1000000140 : TextConst 'ENU=objects without a single child: %1;RUS=объектов без единого потомка: %1';
       HeadersTxt@1000000076 : TextConst 'ENU=headers %1, broken %2;RUS=заголовков %1, нарушений %2';
       ChkCmpTxt@1000000040 : TextConst 'ENU=comparison found lines on both sides;RUS=сравнение нашло строки с обеих сторон';
@@ -5087,6 +5093,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       DoorlessObjs@1000000138 : Text;
       GrandSelfSaved@1000000077 : Decimal;
       EdgesLive@1000000078 : Boolean;
+      InnerCall@1000000148 : TEMPORARY Record 110200;
+      InnerKnown@1000000149 : Boolean;
       AdviseKeys@1000000094 : Boolean;
       AdviceSql@1000000095 : TEMPORARY Record 110205;
       ParamCache@1000000106 : TEMPORARY Record 110205;
@@ -5476,6 +5484,9 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
 
       Rollup(TempLine,TempLine."Line Type"::"Trigger/Function");
       AttachPublisherTime(TempLine,TempMeas);
+      // Время внутренних вызовов снимаем ДО сводки объектов: она вычитает его из суммы
+      // полного времени функций.
+      CollectInnerCalls;
       Rollup(TempLine,TempLine."Line Type"::Object);
       // Ребра прогона годны с этой минуты: показанное собрано из ТЕКУЩЕГО приемника.
       // Флаг обязан стоять ДО разметки раскрываемых строк - разметка сама спрашивает
@@ -6027,6 +6038,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       OwnSqlCount@1000000010 : Integer;
       OwnMax@1000000011 : Decimal;
       OwnMeasured@1000000012 : Boolean;
+      FuncTotal@1000000013 : Decimal;
+      MaxFunc@1000000014 : Decimal;
     BEGIN
       // Группа объекта тянется до следующей строки объекта, группа функции - до
       // следующей функции или объекта. Порядок строк в Code Coverage именно такой.
@@ -6068,11 +6081,16 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
             Child."Line Type"::"Trigger/Function":
               BEGIN
                 GroupEnded := Header."Line Type" = Header."Line Type"::"Trigger/Function";
-                // Заглушка события своих строк не имеет, и в сумму ОБЪЕКТА ее время
-                // иначе не попало бы вовсе - а оно настоящее, это накладные расходы на
-                // подъем события. Функции свернуты раньше объектов, поэтому числа
-                // заголовка тут уже окончательные.
-                IF NOT GroupEnded THEN
+                IF NOT GroupEnded THEN BEGIN
+                  // Полное время функций - основа полного времени ОБЪЕКТА. Функции
+                  // свернуты раньше объектов, поэтому числа заголовка тут уже
+                  // окончательные.
+                  FuncTotal := FuncTotal + Child."Total ms";
+                  IF Child."Total ms" > MaxFunc THEN
+                    MaxFunc := Child."Total ms";
+                  // Заглушка события своих строк не имеет, и в сумму ОБЪЕКТА ее время
+                  // иначе не попало бы вовсе - а оно настоящее, это накладные расходы на
+                  // подъем события.
                   IF (Child."Code Lines" = 0) AND Child.Measured THEN BEGIN
                     Header."No. of Hits" := Header."No. of Hits" + Child."No. of Hits";
                     Header."Timed Hits" := Header."Timed Hits" + Child."Timed Hits";
@@ -6083,6 +6101,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
                       Header."Max ms" := Child."Max ms";
                     Header.Measured := TRUE;
                   END;
+                END;
               END;
             Child."Line Type"::Code:
               BEGIN
@@ -6108,8 +6127,10 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // Полное время группы складывается по-разному у функции и у объекта. Операторы
       // одного кадра делят его жизнь без пересечений, поэтому у ФУНКЦИИ сумма полного
       // времени ее строк и есть полное время функции - со всем, что она вызвала. У
-      // ОБЪЕКТА так нельзя: вызов одной его функции из другой попал бы в сумму дважды,
-      // поэтому там остается сумма своего времени. Рекурсию приемник разводит сам:
+      // ОБЪЕКТА сложить полное время его функций в лоб нельзя: вызов одной своей функции
+      // из другой лег бы в сумму дважды. Поэтому из суммы вычитается время ВНУТРЕННИХ
+      // вызовов - тех, где вызывающий и вызванный объект один и тот же, - и остается
+      // время ВХОДОВ в объект со всем, что они вызвали. Рекурсию приемник разводит сам:
       // полное время строки и ребра берется по ВНЕШНЕМУ витку, вложенные в него входят.
       IF Header."Line Type" = Header."Line Type"::"Trigger/Function" THEN BEGIN
         Header."Total ms" := TotalGroup;
@@ -6126,9 +6147,90 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
           Header."Max ms" := OwnMax;
           Header.Measured := TRUE;
         END;
-      END ELSE
-        Header."Total ms" := Header."Self ms";
+      END ELSE BEGIN
+        // Время внутренних вызовов знают одни ребра, а живут они в приемнике и в базу не
+        // уезжают. У ЗАГРУЖЕННОГО замера взять его неоткуда, и там остается число,
+        // посчитанное при сборке: оно уехало в замер вместе со строкой объекта.
+        IF InnerKnown THEN
+          Header."Total ms" := FuncTotal - InnerCallMs(Header."Object Type",Header."Object ID")
+        ELSE
+          Header."Total ms" := OwnTotal;
+        // Два предела снизу. Кадр функции лежит ЦЕЛИКОМ внутри входа в объект, поэтому
+        // полное время объекта не меньше полного времени любой его функции; и не меньше
+        // своего - свое его часть. Раньше объект показывал ровно свое время, и строка
+        // объекта выходила меньше строк под собой: у страницы, вся работа которой в
+        // вызванных объектах, там стояли единицы миллисекунд против сотен под ней.
+        // Уйти ниже предела вычитание может и законно - на пролог кадра, который не
+        // покрыт ни одним оператором, и на ребра, отброшенные по своему пределу.
+        IF Header."Total ms" < MaxFunc THEN
+          Header."Total ms" := MaxFunc;
+        IF Header."Total ms" < Header."Self ms" THEN
+          Header."Total ms" := Header."Self ms";
+      END;
       Header.MODIFY;
+    END;
+
+    LOCAL PROCEDURE CollectInnerCalls@172();
+    VAR
+      Rows@1000000000 : Integer;
+      Index@1000000001 : Integer;
+      ObjType@1000000002 : Integer;
+      ObjID@1000000003 : Integer;
+      NextNo@1000000004 : Integer;
+    BEGIN
+      // Время вызовов ВНУТРИ объекта - ровно то, что в сумме полного времени его функций
+      // лежит дважды: раз у вызванной функции и раз в строке вызова у вызывающей. Знают
+      // о нем только ребра. Проход один на весь замер: отбор ребер по объекту все равно
+      // идет по всем ребрам, и на каждый объект это был бы лишний проход.
+      InnerCall.RESET;
+      InnerCall.DELETEALL;
+      InnerKnown := FALSE;
+      IF ISNULL(Receiver) THEN
+        EXIT;
+
+      // Минус единица в коде объекта и в номере строки снимает отбор совсем: нужны ВСЕ
+      // ребра замера, а не ребра одной строки.
+      Rows := Receiver.SelectEdges(0,-1,-1,'');
+      FOR Index := 0 TO Rows - 1 DO
+        IF Receiver.SelectEdgeRow(Index) THEN BEGIN
+          ObjType := Receiver.CurrentEdgeCallerObjectType;
+          ObjID := Receiver.CurrentEdgeCallerObjectId;
+          IF (ObjType = Receiver.CurrentEdgeCalleeObjectType) AND
+             (ObjID = Receiver.CurrentEdgeCalleeObjectId)
+          THEN BEGIN
+            InnerCall.RESET;
+            InnerCall.SETCURRENTKEY("Object Type","Object ID","Line No.");
+            InnerCall.SETRANGE("Object Type",ObjType);
+            InnerCall.SETRANGE("Object ID",ObjID);
+            IF InnerCall.FINDFIRST THEN BEGIN
+              InnerCall."Total ms" := InnerCall."Total ms" + Receiver.CurrentEdgeTotalMs;
+              InnerCall.MODIFY;
+            END ELSE BEGIN
+              InnerCall.RESET;
+              NextNo := NextNo + 1;
+              InnerCall.INIT;
+              InnerCall."Entry No." := NextNo;
+              InnerCall."Object Type" := ObjType;
+              InnerCall."Object ID" := ObjID;
+              InnerCall."Total ms" := Receiver.CurrentEdgeTotalMs;
+              InnerCall.INSERT;
+            END;
+          END;
+        END;
+      // Флаг взводим ПОСЛЕ прохода: до него сводке нечего вычитать, и вычитать она
+      // не должна.
+      InnerKnown := TRUE;
+    END;
+
+    LOCAL PROCEDURE InnerCallMs@173(ObjType@1000000000 : Integer;ObjID@1000000001 : Integer) : Decimal;
+    BEGIN
+      InnerCall.RESET;
+      InnerCall.SETCURRENTKEY("Object Type","Object ID","Line No.");
+      InnerCall.SETRANGE("Object Type",ObjType);
+      InnerCall.SETRANGE("Object ID",ObjID);
+      IF InnerCall.FINDFIRST THEN
+        EXIT(InnerCall."Total ms");
+      EXIT(0);
     END;
 
     LOCAL PROCEDURE DropEmptyGroups@15(VAR TempLine@1000000000 : TEMPORARY Record 110200);
@@ -7575,6 +7677,11 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // Заголовки пересобираем из сохраненных строк, а не берем как есть: их сводные
       // числа со временем меняли смысл, и старый замер иначе показывал бы одно, а
       // свежий - другое. Своего времени заголовка пересборка не двигает - те же дети.
+      // Полное время ОБЪЕКТА - исключение: оно считается по ребрам, а ребер у
+      // сохраненного замера нет вовсе. Пересчет свернул бы его в сумму полного времени
+      // функций, где внутренние вызовы лежат дважды, поэтому сводка оставит там
+      // сохраненное число.
+      InnerKnown := FALSE;
       Rollup(TempLine,TempLine."Line Type"::"Trigger/Function");
       Rollup(TempLine,TempLine."Line Type"::Object);
       // Ребра живут только в приемнике и в базу не сохраняются, а приемник
@@ -9007,6 +9114,111 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       EXIT(Found);
     END;
 
+    LOCAL PROCEDURE CheckObjectTotal@174(RunNo@1000000016 : Integer;VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
+    VAR
+      TempLine@1000000003 : TEMPORARY Record 110200;
+      Obj@1000000017 : TEMPORARY Record 110200;
+      RunLine@1000000018 : Record 110202;
+      Demo@1000000004 : Codeunit 110201;
+      Acc@1000000005 : Decimal;
+      Index@1000000006 : Integer;
+      CallerTotal@1000000007 : Decimal;
+      CallerSelf@1000000008 : Decimal;
+      CalleeSelf@1000000009 : Decimal;
+      MaxFunc@1000000010 : Decimal;
+      Above@1000000011 : Integer;
+      ObjRows@1000000012 : Integer;
+      Broken@1000000013 : Integer;
+      SavedTotal@1000000014 : Decimal;
+      LoadedTotal@1000000015 : Decimal;
+    BEGIN
+      // Объект, который зовет ЧУЖОЙ объект: своего времени у него мало, а ушло оно в
+      // вызванного. Так выглядит на прикладной логике любая страница: под ней триггеры
+      // с сотнями миллисекунд, а в строке объекта единицы. Пока полное время объекта
+      // равнялось своему, строка объекта показывала МЕНЬШЕ строк под собой, и прочитать
+      // по ней, куда ушло время, было нельзя.
+      StartTrace(0,0,0,0);
+      FOR Index := 1 TO 200 DO
+        Demo.RunPlainWork(Index,Acc);
+      StopTrace;
+      BuildResult(TempLine,0,0,TRUE);
+
+      Obj.COPY(TempLine,TRUE);
+      Obj.RESET;
+      Obj.SETRANGE("Line Type",Obj."Line Type"::Object);
+      IF Obj.FINDSET THEN
+        REPEAT
+          ObjRows := ObjRows + 1;
+          MaxFunc := MaxFuncTotal(TempLine,Obj."Entry No.");
+          // Кадр функции лежит ЦЕЛИКОМ внутри входа в объект, поэтому полное время
+          // объекта не может быть меньше полного времени любой его функции.
+          IF Obj."Total ms" + 0.0005 < MaxFunc THEN
+            Broken := Broken + 1;
+          IF Obj."Total ms" > Obj."Self ms" + 0.001 THEN
+            Above := Above + 1;
+          IF Obj."Object Type" = Obj."Object Type"::CodeUnit THEN
+            CASE Obj."Object ID" OF
+              110200:
+                BEGIN
+                  CallerTotal := Obj."Total ms";
+                  CallerSelf := Obj."Self ms";
+                END;
+              110201:
+                CalleeSelf := Obj."Self ms";
+            END;
+        UNTIL Obj.NEXT = 0;
+
+      // Все время вызванного объекта прошло ВНУТРИ кадров вызывающего, значит полное
+      // время вызывающего обязано вместить и свое время, и время вызванного. Запас в
+      // сотые миллисекунды - на пролог кадра: он не покрыт ни одним оператором, и в
+      // сумме по строкам его нет.
+      Check(Passed,Total,Report,ChkObjTotalTxt,
+        (Above > 0) AND (CalleeSelf > 0) AND
+        (CallerTotal + 0.05 >= CallerSelf + CalleeSelf),
+        STRSUBSTNO(ObjTotalTxt,CallerTotal,CallerSelf,CalleeSelf,Above));
+
+      Check(Passed,Total,Report,ChkObjBoundTxt,(ObjRows > 0) AND (Broken = 0),
+        STRSUBSTNO(ObjBoundTxt,ObjRows,Broken));
+
+      // Круг "сохранили - загрузили": у загруженного замера ребер нет, и пересчет
+      // свернул бы объекту полное время в сумму его функций - с внутренними вызовами,
+      // сложенными дважды. Сохраненное число обязано вернуться тем же.
+      RunLine.RESET;
+      RunLine.SETRANGE("Run No.",RunNo);
+      RunLine.SETRANGE("Line Type",RunLine."Line Type"::Object);
+      IF RunLine.FINDFIRST THEN
+        SavedTotal := RunLine."Total ms";
+      LoadRun(RunNo,TempLine);
+      TempLine.RESET;
+      TempLine.SETRANGE("Line Type",TempLine."Line Type"::Object);
+      IF TempLine.FINDFIRST THEN
+        LoadedTotal := TempLine."Total ms";
+      TempLine.RESET;
+      Check(Passed,Total,Report,ChkObjKeptTxt,
+        (SavedTotal > 0) AND (ABS(LoadedTotal - SavedTotal) <= 0.0005),
+        STRSUBSTNO(ObjKeptTxt,SavedTotal,LoadedTotal));
+    END;
+
+    LOCAL PROCEDURE MaxFuncTotal@175(VAR TempLine@1000000000 : TEMPORARY Record 110200;ObjEntryNo@1000000001 : Integer) MaxMs : Decimal;
+    VAR
+      Cur@1000000002 : TEMPORARY Record 110200;
+    BEGIN
+      // Наибольшее полное время функции ЭТОГО объекта. Группа объекта тянется до
+      // следующей строки объекта - ровно так же, как в сводке.
+      Cur.COPY(TempLine,TRUE);
+      Cur.RESET;
+      Cur.SETFILTER("Entry No.",'>%1',ObjEntryNo);
+      IF NOT Cur.FINDSET THEN
+        EXIT;
+      REPEAT
+        IF Cur."Line Type" = Cur."Line Type"::Object THEN
+          EXIT;
+        IF Cur."Line Type" = Cur."Line Type"::"Trigger/Function" THEN
+          IF Cur."Total ms" > MaxMs THEN
+            MaxMs := Cur."Total ms";
+      UNTIL Cur.NEXT = 0;
+    END;
+
     LOCAL PROCEDURE CheckTreeNav@107(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
     VAR
       TempLine@1000000003 : TEMPORARY Record 110200;
@@ -9281,6 +9493,9 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       CheckBodyNav(Passed,Total,Report);
       CheckTreeNav(Passed,Total,Report);
       CheckKeyAdvice(Passed,Total,Report);
+      // ПОСЛЕ всех, кому нужны ребра: она заканчивается загрузкой сохраненного замера,
+      // а с ним ребра гаснут до следующей сборки.
+      CheckObjectTotal(RunA,Passed,Total,Report);
       // Самой ПОСЛЕДНЕЙ: она поднимает журнал покрытия и гасит его аварийно, и делать
       // это посреди чужих замеров нельзя.
       CheckForceStop(Passed,Total,Report);

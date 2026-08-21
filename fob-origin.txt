@@ -15,6 +15,6 @@
 # Обновляется скриптом scripts/Update-FobOrigin.ps1 СРАЗУ ПОСЛЕ перевыгрузки .fob,
 # и только тогда. Запуск «чтобы проверка позеленела» превращает её в ложь.
 
-txt      c877750d65ca7633aba01424b1f13ac33d7716bcd3a1174c9e70f59ce0d4ee3b
-fob      76285ea26788798bcb5a51a1f11ae09b0b4ded61ae4bbc37436bb5c3dc1a9ff5
+txt      b517a659f390ca9e7c51c1d16224be6c6a83cbd50fc47615029d790e3a20bb90
+fob      17cddec303477dcda2c295b637daecbf17f707133724f42fdb99510f3bd14c57
 platform 11.0.36462.0
