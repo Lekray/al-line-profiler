@@ -5155,272 +5155,6 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       NavTooDeepErr@1000000070 : TextConst 'ENU=Too many calls are open at once, close some of them first.;RUS=Открыто слишком много вызовов сразу, закройте лишние.';
       DeclMissTxt@1000000048 : TextConst 'ENU=parameters %1, DECLARE lines missing %2, types not resolved %3;RUS=параметров %1, не хватает строк DECLARE %2, типов не опознано %3';
 
-    // --- Величины, у которых есть имя -----------------------------------------
-    // Число, стоящее прямо в коде, читается как случайное: понять, много это или мало,
-    // можно только зная, откуда оно взялось. Здесь у каждого есть имя и довод, а место
-    // применения читается фразой. Величины, зависящие от СРЕДЫ, а не от смысла, живут
-    // не тут, а в настройке: их крутят на объекте, не пересобирая кодюнит.
-
-    LOCAL PROCEDURE MaxNavNodes@176() : Integer;
-    BEGIN
-      // Сколько мест вызова держим раскрытыми разом. Держать вровень с размерностью
-      // ARRAY [20] у NavTargets и соседей: границу массива C/AL берет литералом, и
-      // задать ее отсюда нельзя - можно только с ней не разойтись.
-      EXIT(20);
-    END;
-
-    LOCAL PROCEDURE MaxNavDepth@177() : Integer;
-    BEGIN
-      // Предел спуска при сборке вида: раскрытая функция может звать ту самую строку,
-      // из которой ее раскрыли, и обход ходил бы по кругу. Глубже, чем открытых узлов,
-      // дерево не бывает, поэтому число то же.
-      EXIT(20);
-    END;
-
-    LOCAL PROCEDURE MaxStubHops@178() : Integer;
-    BEGIN
-      // Заглушки событий, через которые за один проход прыгаем на подписчиков. Вровень
-      // с ARRAY [8] у StubType и соседей.
-      EXIT(8);
-    END;
-
-    LOCAL PROCEDURE MaxOrphansShown@179() : Integer;
-    BEGIN
-      // Сколько промахов склейки печатать поименно. Список нужен, чтобы понять, ЧТО
-      // потерялось; на тысяче строк он этого уже не объясняет.
-      EXIT(15);
-    END;
-
-    LOCAL PROCEDURE MaxCalibrationRows@180() : Integer;
-    BEGIN
-      // Сколько замеров опрашиваем на калибровке смещения строк. Голосование сходится
-      // на первых десятках, а проход идет по всей трассе: на большом замере это
-      // единственное место, где платят за уже известное.
-      EXIT(300);
-    END;
-
-    LOCAL PROCEDURE MinCalibrationKeyLen@181() : Integer;
-    BEGIN
-      // Короткие тексты в голосовании не участвуют: EXIT и END встречаются в объекте
-      // десятками и совпадут где угодно.
-      EXIT(8);
-    END;
-
-    LOCAL PROCEDURE PollTraceMs@182() : Integer;
-    BEGIN
-      // Шаг ожидания, пока поток событий не пойдет. Мельче - и сам цикл станет
-      // заметной нагрузкой, крупнее - и короткий сценарий успеет отработать в тишине.
-      EXIT(20);
-    END;
-
-    LOCAL PROCEDURE RingBufferDrainMs@183() : Integer;
-    BEGIN
-      // Ждем рассылку кольцевого буфера: задержка у сеанса Extended Events - секунда,
-      // ждем с запасом, иначе на коротком замере значения выходят пустыми.
-      EXIT(1800);
-    END;
-
-    LOCAL PROCEDURE SqlCommandTimeoutSec@184() : Integer;
-    BEGIN
-      // Предел на команду без чтения - заведение и снятие сеанса Extended Events.
-      EXIT(30);
-    END;
-
-    LOCAL PROCEDURE SqlReadTimeoutSec@185() : Integer;
-    BEGIN
-      // Предел на чтение кольцевого буфера: разбор XML на стороне сервера дороже самой
-      // команды, и предела на команду ему бывает мало.
-      EXIT(60);
-    END;
-
-    LOCAL PROCEDURE MediumHotPctShare@186() : Integer;
-    BEGIN
-      // Доля от порога горячей строки, с которой подсказка получает СРЕДНЮЮ важность:
-      // на средней требования мягче ровно вдвое.
-      EXIT(2);
-    END;
-
-    LOCAL PROCEDURE MediumHotMsFactor@187() : Integer;
-    BEGIN
-      // Время, которое поднимает подсказку до средней важности само по себе, без доли:
-      // строка в десять порогов дорога и в большом прогоне, где доля ее мала.
-      EXIT(10);
-    END;
-
-    LOCAL PROCEDURE SqlPerHitsShare@188() : Integer;
-    BEGIN
-      // Запрос хотя бы на каждое пятое выполнение: реже - это уже разовая работа,
-      // которую кэш записей платформы и так свел к нескольким обращениям.
-      EXIT(5);
-    END;
-
-    LOCAL PROCEDURE ClientCoreFirstTable@189() : Integer;
-    BEGIN
-      // Объекты от десяти миллионов - ядро подсистем клиента: правка этого диапазона
-      // нашей лицензией не покрыта, и совет по нему остается сигналом, а не заданием.
-      EXIT(10000000);
-    END;
-
-    LOCAL PROCEDURE MsRounding@190() : Decimal;
-    BEGIN
-      // Три знака после запятой - ровно столько, сколько показывают колонки времени.
-      EXIT(0.001);
-    END;
-
-    LOCAL PROCEDURE PctRounding@191() : Decimal;
-    BEGIN
-      // Сотые доли процента: на них уже видна разница между соседними строками.
-      EXIT(0.01);
-    END;
-
-    LOCAL PROCEDURE DeltaPctRounding@192() : Decimal;
-    BEGIN
-      // У дельты сравнения знаков меньше: сотые доли процента на глаз неразличимы, а
-      // колонка от лишних знаков становится нечитаемой.
-      EXIT(0.1);
-    END;
-
-    LOCAL PROCEDURE IsCSideObjectType@193(ObjType@1000000000 : Integer) : Boolean;
-    BEGIN
-      // Типы объектов C/SIDE идут подряд от TableData до Query. Все, что вне этого
-      // ряда, - кадр платформы или незнакомое имя: листинга у него нет и быть не может.
-      EXIT((ObjType >= 0) AND (ObjType <= 9));
-    END;
-
-    [External]
-    PROCEDURE HealthClean@194() : Integer;
-    BEGIN
-      // Уровни здоровья замера. Они СРАВНИМЫ по возрастанию: на этом держится и подъем
-      // итогового уровня по худшему замечанию, и раскраска панели итогов на странице.
-      // Чисто: замечаний нет вовсе.
-      EXIT(0);
-    END;
-
-    [External]
-    PROCEDURE HealthNoted@195() : Integer;
-    BEGIN
-      // Есть на что посмотреть: замеру верить можно, но с оговоркой.
-      EXIT(1);
-    END;
-
-    [External]
-    PROCEDURE HealthBroken@196() : Integer;
-    BEGIN
-      // Замеру верить нельзя.
-      EXIT(2);
-    END;
-
-    LOCAL PROCEDURE HalfShownMs@197() : Decimal;
-    BEGIN
-      // Половина последнего показанного знака. Сравнивать времена строже, чем их
-      // показывают, значит ловить округление, а не расхождение.
-      EXIT(0.0005);
-    END;
-
-    LOCAL PROCEDURE RollupTolerantMs@198() : Decimal;
-    BEGIN
-      // Допуск на сходимость сумм по дереву: в них складываются сотни округленных чисел.
-      EXIT(0.001);
-    END;
-
-    LOCAL PROCEDURE FrameOverheadMs@199() : Decimal;
-    BEGIN
-      // Пролог кадра не покрыт ни одним оператором, и в сумме по строкам его нет. На
-      // десятке кадров это сотые доли миллисекунды - их и прощаем.
-      EXIT(0.05);
-    END;
-
-    LOCAL PROCEDURE SumTolerantMs@200() : Decimal;
-    BEGIN
-      // Допуск на итог замера целиком: полмиллисекунды на тысячи строк.
-      EXIT(0.5);
-    END;
-
-    LOCAL PROCEDURE MinShiftVotes@201() : Integer;
-    BEGIN
-      // Сколько совпадений текстов считать доказательством смещения нумерации: одно-два
-      // случаются на повторяющихся операторах и сами по себе не значат ничего.
-      EXIT(5);
-    END;
-
-    LOCAL PROCEDURE MaxSampleLines@202() : Integer;
-    BEGIN
-      // Сколько примеров печатать в подробностях проверки: они для того, чтобы понять,
-      // ЧТО нашлось, а не чтобы перечислить все.
-      EXIT(3);
-    END;
-
-    LOCAL PROCEDURE MaxMarkedLines@203() : Integer;
-    BEGIN
-      // Вровень с ARRAY [40] у LineTxt и соседей в проверке разметки.
-      EXIT(40);
-    END;
-
-    LOCAL PROCEDURE CrText@204() : Text[1];
-    BEGIN
-      // Коды 13, 10, 9 и 39 - это ASCII, величина не наша. Имя тут нужно не чтобы ее
-      // менять, а чтобы не заводить ее заново в каждой второй процедуре: пар
-      // "переменная плюс присваивание кода" в объекте было десять.
-      EXIT(FORMAT(CharOf(13)));
-    END;
-
-    LOCAL PROCEDURE LfText@205() : Text[1];
-    BEGIN
-      EXIT(FORMAT(CharOf(10)));
-    END;
-
-    LOCAL PROCEDURE CrLf@206() : Text[2];
-    BEGIN
-      EXIT(CrText + LfText);
-    END;
-
-    LOCAL PROCEDURE TabText@207() : Text[1];
-    BEGIN
-      EXIT(FORMAT(CharOf(9)));
-    END;
-
-    LOCAL PROCEDURE AposText@208() : Text[1];
-    BEGIN
-      // Апостроф: в скрипте T-SQL им обрамлены строковые литералы, а внутри литерала
-      // C/AL его не написать.
-      EXIT(FORMAT(CharOf(39)));
-    END;
-
-    LOCAL PROCEDURE ListFence@209() : Text[1];
-    BEGIN
-      // Черта, которой обрамлен КАЖДЫЙ элемент списка-строки - и первый, и последний.
-      // Списки эти собирают в одном месте, а спрашивают в другом: искать элемент вместе
-      // с обеими чертами и значит искать его целиком, а не хвостом чужого имени.
-      EXIT('|');
-    END;
-
-    LOCAL PROCEDURE TokenSep@210() : Text[1];
-    BEGIN
-      // Разделитель внутри метки цели: тип, код объекта и имя функции.
-      EXIT(':');
-    END;
-
-    LOCAL PROCEDURE AnyObjectToken@211() : Text[4];
-    BEGIN
-      // Метка цели "любой объект": в нее сводится вызов, у которого объект по тексту
-      // строки не опознан, и по ней же цель ищут по одному короткому имени функции.
-      EXIT('*' + TokenSep + '*' + TokenSep);
-    END;
-
-    LOCAL PROCEDURE SelfTestReportName@212() : Text[30];
-    BEGIN
-      // Имя знает не только объект: шаг onsite/05 ищет в рабочем каталоге ровно его и
-      // по нему судит, отработала обкатка или нет.
-      EXIT('selftest.tsv');
-    END;
-
-    LOCAL PROCEDURE SelfTestTraceName@213() : Text[30];
-    BEGIN
-      // Файл трассировки для проверки разбора .etl: кладут его туда руками, поэтому
-      // имя обязано быть постоянным.
-      EXIT('selftest.etl');
-    END;
-
     [External]
     PROCEDURE StartTrace@1(SessionScope@1000000000 : Integer;TargetSessionID@1000000004 : Integer;TargetObjectType@1000000001 : Integer;TargetObjectID@1000000002 : Integer);
     VAR
@@ -7134,12 +6868,16 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
 
     LOCAL PROCEDURE StatementPreview@134(Body@1000000000 : Text) : Text[250];
     VAR
-      Preview@1000000004 : Text;
+      Preview@1000000004 : Text[250];
     BEGIN
-      // Тот же вид, что кладет в поле сама строка запроса: по нему и сходятся.
+      // Тот же вид, что кладет в поле сама строка запроса: по нему и сходятся. Режем
+      // ДО замены и ровно по ширине ПОЛЯ, как это делает SetStatement: отрезав иначе,
+      // получим строку, которой в поле нет никогда. Ширину дает сама переменная, и
+      // размерная она поэтому: у безразмерного Text ширины нет вовсе, а MAXSTRLEN
+      // молча возвращает не двести пятьдесят.
       Preview := COPYSTR(Body,1,MAXSTRLEN(Preview));
       Preview := CONVERTSTR(Preview,TabText + CrText + LfText,'   ');
-      EXIT(COPYSTR(DELCHR(Preview,'<>',' '),1,250));
+      EXIT(DELCHR(Preview,'<>',' '));
     END;
 
     LOCAL PROCEDURE ApplyParams@135(VAR TempSql@1000000000 : TEMPORARY Record 110205);
@@ -10154,6 +9892,277 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       OutFile.CREATEOUTSTREAM(FileStream);
       COPYSTREAM(FileStream,BlobStream);
       OutFile.CLOSE;
+    END;
+
+    LOCAL PROCEDURE "------- Legal Hardcodes -------"@215();
+    BEGIN
+      // Разделитель, а не работа: ниже идут только величины, у которых есть имя.
+      // Число, стоящее прямо в коде, читается как случайное: понять, много это или
+      // мало, можно только зная, откуда оно взялось. Здесь у каждого есть имя и довод,
+      // а место применения читается фразой. Величины, зависящие от СРЕДЫ, а не от
+      // смысла, живут не тут, а в настройке: их крутят на объекте, не пересобирая
+      // кодюнит. В списке функций C/SIDE порядок объявления - единственная разметка,
+      // которая там есть, поэтому разметкой служит функция.
+    END;
+
+    LOCAL PROCEDURE MaxNavNodes@176() : Integer;
+    BEGIN
+      // Сколько мест вызова держим раскрытыми разом. Держать вровень с размерностью
+      // ARRAY [20] у NavTargets и соседей: границу массива C/AL берет литералом, и
+      // задать ее отсюда нельзя - можно только с ней не разойтись.
+      EXIT(20);
+    END;
+
+    LOCAL PROCEDURE MaxNavDepth@177() : Integer;
+    BEGIN
+      // Предел спуска при сборке вида: раскрытая функция может звать ту самую строку,
+      // из которой ее раскрыли, и обход ходил бы по кругу. Глубже, чем открытых узлов,
+      // дерево не бывает, поэтому число то же.
+      EXIT(20);
+    END;
+
+    LOCAL PROCEDURE MaxStubHops@178() : Integer;
+    BEGIN
+      // Заглушки событий, через которые за один проход прыгаем на подписчиков. Вровень
+      // с ARRAY [8] у StubType и соседей.
+      EXIT(8);
+    END;
+
+    LOCAL PROCEDURE MaxOrphansShown@179() : Integer;
+    BEGIN
+      // Сколько промахов склейки печатать поименно. Список нужен, чтобы понять, ЧТО
+      // потерялось; на тысяче строк он этого уже не объясняет.
+      EXIT(15);
+    END;
+
+    LOCAL PROCEDURE MaxCalibrationRows@180() : Integer;
+    BEGIN
+      // Сколько замеров опрашиваем на калибровке смещения строк. Голосование сходится
+      // на первых десятках, а проход идет по всей трассе: на большом замере это
+      // единственное место, где платят за уже известное.
+      EXIT(300);
+    END;
+
+    LOCAL PROCEDURE MinCalibrationKeyLen@181() : Integer;
+    BEGIN
+      // Короткие тексты в голосовании не участвуют: EXIT и END встречаются в объекте
+      // десятками и совпадут где угодно.
+      EXIT(8);
+    END;
+
+    LOCAL PROCEDURE PollTraceMs@182() : Integer;
+    BEGIN
+      // Шаг ожидания, пока поток событий не пойдет. Мельче - и сам цикл станет
+      // заметной нагрузкой, крупнее - и короткий сценарий успеет отработать в тишине.
+      EXIT(20);
+    END;
+
+    LOCAL PROCEDURE RingBufferDrainMs@183() : Integer;
+    BEGIN
+      // Ждем рассылку кольцевого буфера: задержка у сеанса Extended Events - секунда,
+      // ждем с запасом, иначе на коротком замере значения выходят пустыми.
+      EXIT(1800);
+    END;
+
+    LOCAL PROCEDURE SqlCommandTimeoutSec@184() : Integer;
+    BEGIN
+      // Предел на команду без чтения - заведение и снятие сеанса Extended Events.
+      EXIT(30);
+    END;
+
+    LOCAL PROCEDURE SqlReadTimeoutSec@185() : Integer;
+    BEGIN
+      // Предел на чтение кольцевого буфера: разбор XML на стороне сервера дороже самой
+      // команды, и предела на команду ему бывает мало.
+      EXIT(60);
+    END;
+
+    LOCAL PROCEDURE MediumHotPctShare@186() : Integer;
+    BEGIN
+      // Доля от порога горячей строки, с которой подсказка получает СРЕДНЮЮ важность:
+      // на средней требования мягче ровно вдвое.
+      EXIT(2);
+    END;
+
+    LOCAL PROCEDURE MediumHotMsFactor@187() : Integer;
+    BEGIN
+      // Время, которое поднимает подсказку до средней важности само по себе, без доли:
+      // строка в десять порогов дорога и в большом прогоне, где доля ее мала.
+      EXIT(10);
+    END;
+
+    LOCAL PROCEDURE SqlPerHitsShare@188() : Integer;
+    BEGIN
+      // Запрос хотя бы на каждое пятое выполнение: реже - это уже разовая работа,
+      // которую кэш записей платформы и так свел к нескольким обращениям.
+      EXIT(5);
+    END;
+
+    LOCAL PROCEDURE ClientCoreFirstTable@189() : Integer;
+    BEGIN
+      // Объекты от десяти миллионов - ядро подсистем клиента: правка этого диапазона
+      // нашей лицензией не покрыта, и совет по нему остается сигналом, а не заданием.
+      EXIT(10000000);
+    END;
+
+    LOCAL PROCEDURE MsRounding@190() : Decimal;
+    BEGIN
+      // Три знака после запятой - ровно столько, сколько показывают колонки времени.
+      EXIT(0.001);
+    END;
+
+    LOCAL PROCEDURE PctRounding@191() : Decimal;
+    BEGIN
+      // Сотые доли процента: на них уже видна разница между соседними строками.
+      EXIT(0.01);
+    END;
+
+    LOCAL PROCEDURE DeltaPctRounding@192() : Decimal;
+    BEGIN
+      // У дельты сравнения знаков меньше: сотые доли процента на глаз неразличимы, а
+      // колонка от лишних знаков становится нечитаемой.
+      EXIT(0.1);
+    END;
+
+    LOCAL PROCEDURE IsCSideObjectType@193(ObjType@1000000000 : Integer) : Boolean;
+    BEGIN
+      // Типы объектов C/SIDE идут подряд от TableData до Query. Все, что вне этого
+      // ряда, - кадр платформы или незнакомое имя: листинга у него нет и быть не может.
+      EXIT((ObjType >= 0) AND (ObjType <= 9));
+    END;
+
+    [External]
+    PROCEDURE HealthClean@194() : Integer;
+    BEGIN
+      // Уровни здоровья замера. Они СРАВНИМЫ по возрастанию: на этом держится и подъем
+      // итогового уровня по худшему замечанию, и раскраска панели итогов на странице.
+      // Чисто: замечаний нет вовсе.
+      EXIT(0);
+    END;
+
+    [External]
+    PROCEDURE HealthNoted@195() : Integer;
+    BEGIN
+      // Есть на что посмотреть: замеру верить можно, но с оговоркой.
+      EXIT(1);
+    END;
+
+    [External]
+    PROCEDURE HealthBroken@196() : Integer;
+    BEGIN
+      // Замеру верить нельзя.
+      EXIT(2);
+    END;
+
+    LOCAL PROCEDURE HalfShownMs@197() : Decimal;
+    BEGIN
+      // Половина последнего показанного знака. Сравнивать времена строже, чем их
+      // показывают, значит ловить округление, а не расхождение.
+      EXIT(0.0005);
+    END;
+
+    LOCAL PROCEDURE RollupTolerantMs@198() : Decimal;
+    BEGIN
+      // Допуск на сходимость сумм по дереву: в них складываются сотни округленных чисел.
+      EXIT(0.001);
+    END;
+
+    LOCAL PROCEDURE FrameOverheadMs@199() : Decimal;
+    BEGIN
+      // Пролог кадра не покрыт ни одним оператором, и в сумме по строкам его нет. На
+      // десятке кадров это сотые доли миллисекунды - их и прощаем.
+      EXIT(0.05);
+    END;
+
+    LOCAL PROCEDURE SumTolerantMs@200() : Decimal;
+    BEGIN
+      // Допуск на итог замера целиком: полмиллисекунды на тысячи строк.
+      EXIT(0.5);
+    END;
+
+    LOCAL PROCEDURE MinShiftVotes@201() : Integer;
+    BEGIN
+      // Сколько совпадений текстов считать доказательством смещения нумерации: одно-два
+      // случаются на повторяющихся операторах и сами по себе не значат ничего.
+      EXIT(5);
+    END;
+
+    LOCAL PROCEDURE MaxSampleLines@202() : Integer;
+    BEGIN
+      // Сколько примеров печатать в подробностях проверки: они для того, чтобы понять,
+      // ЧТО нашлось, а не чтобы перечислить все.
+      EXIT(3);
+    END;
+
+    LOCAL PROCEDURE MaxMarkedLines@203() : Integer;
+    BEGIN
+      // Вровень с ARRAY [40] у LineTxt и соседей в проверке разметки.
+      EXIT(40);
+    END;
+
+    LOCAL PROCEDURE CrText@204() : Text[1];
+    BEGIN
+      // Коды 13, 10, 9 и 39 - это ASCII, величина не наша. Имя тут нужно не чтобы ее
+      // менять, а чтобы не заводить ее заново в каждой второй процедуре: пар
+      // "переменная плюс присваивание кода" в объекте было десять.
+      EXIT(FORMAT(CharOf(13)));
+    END;
+
+    LOCAL PROCEDURE LfText@205() : Text[1];
+    BEGIN
+      EXIT(FORMAT(CharOf(10)));
+    END;
+
+    LOCAL PROCEDURE CrLf@206() : Text[2];
+    BEGIN
+      EXIT(CrText + LfText);
+    END;
+
+    LOCAL PROCEDURE TabText@207() : Text[1];
+    BEGIN
+      EXIT(FORMAT(CharOf(9)));
+    END;
+
+    LOCAL PROCEDURE AposText@208() : Text[1];
+    BEGIN
+      // Апостроф: в скрипте T-SQL им обрамлены строковые литералы, а внутри литерала
+      // C/AL его не написать.
+      EXIT(FORMAT(CharOf(39)));
+    END;
+
+    LOCAL PROCEDURE ListFence@209() : Text[1];
+    BEGIN
+      // Черта, которой обрамлен КАЖДЫЙ элемент списка-строки - и первый, и последний.
+      // Списки эти собирают в одном месте, а спрашивают в другом: искать элемент вместе
+      // с обеими чертами и значит искать его целиком, а не хвостом чужого имени.
+      EXIT('|');
+    END;
+
+    LOCAL PROCEDURE TokenSep@210() : Text[1];
+    BEGIN
+      // Разделитель внутри метки цели: тип, код объекта и имя функции.
+      EXIT(':');
+    END;
+
+    LOCAL PROCEDURE AnyObjectToken@211() : Text[4];
+    BEGIN
+      // Метка цели "любой объект": в нее сводится вызов, у которого объект по тексту
+      // строки не опознан, и по ней же цель ищут по одному короткому имени функции.
+      EXIT('*' + TokenSep + '*' + TokenSep);
+    END;
+
+    LOCAL PROCEDURE SelfTestReportName@212() : Text[30];
+    BEGIN
+      // Имя знает не только объект: шаг onsite/05 ищет в рабочем каталоге ровно его и
+      // по нему судит, отработала обкатка или нет.
+      EXIT('selftest.tsv');
+    END;
+
+    LOCAL PROCEDURE SelfTestTraceName@213() : Text[30];
+    BEGIN
+      // Файл трассировки для проверки разбора .etl: кладут его туда руками, поэтому
+      // имя обязано быть постоянным.
+      EXIT('selftest.etl');
     END;
 
     BEGIN
