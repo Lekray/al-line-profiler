@@ -8,9 +8,11 @@
 .DESCRIPTION
     Проверяет один .txt с объектами задачи (классический текстовый экспорт C/SIDE):
       (a) валидный UTF-8 без BOM; отсутствие одиночных LF (все переводы строк CRLF);
-      (b) порядок OBJECT-заголовков по типам:
-          Table -> Page -> Report -> Codeunit -> XMLport -> Query -> MenuSuite
-          (внутри одного типа порядок ID не важен);
+      (b) порядок OBJECT-заголовков по типам - тот, в котором объекты выгружает сам
+          C/SIDE, то есть по НОМЕРАМ типов платформы:
+          Table -> Report -> Codeunit -> XMLport -> MenuSuite -> Page -> Query
+          (внутри одного типа порядок ID не важен). Page стоит после Codeunit не по
+          зависимостям, а потому, что номер типа у страницы восьмой, а у кодюнита пятый;
       (c) у каждого OBJECT в блоке OBJECT-PROPERTIES:
           Date= в формате ДД.ММ.ГГ (двузначный год); Modified=Yes.
           Version List НЕ проверяется на код задачи: в этом проекте код задачи
@@ -177,7 +179,8 @@ $forbidden = @{
 
 # Регэкспы
 $reHeader  = '^OBJECT\s+(Table|Page|Report|Codeunit|XMLport|Query|MenuSuite)\s+(\d+)\s+(.*?)\s*$'
-$typeOrder = @{ 'Table'=1; 'Page'=2; 'Report'=3; 'Codeunit'=4; 'XMLport'=5; 'Query'=6; 'MenuSuite'=7 }
+# Номера типов объектов платформы - в этом порядке C/SIDE и выгружает объекты.
+$typeOrder = @{ 'Table'=1; 'Report'=3; 'Codeunit'=5; 'XMLport'=6; 'MenuSuite'=7; 'Page'=8; 'Query'=9 }
 
 # Экранированный код задачи для построения шаблонов тегов
 $tcEsc = [regex]::Escape($TaskCode)

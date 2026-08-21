@@ -30,6 +30,13 @@
 .PARAMETER SkipCal
     Только сборка и выкладка приёмника, объекты не трогать.
 
+.PARAMETER KeepText
+    Не забирать текст объектов из базы после компиляции. По умолчанию рабочий
+    LineProfiler.txt заменяется тем, что выгружает C/SIDE: формат объекта знает
+    только он - порядок свойств поля, выравнивание двуязычных подписей, порядок
+    объектов по номерам типов. Файл, который правят руками, от этого канона
+    отъезжает молча: разошлось сразу в сорока двух местах.
+
 .EXAMPLE
     pwsh scripts/Deploy-LineProfiler.ps1
     Полная выкладка: приёмник + объекты.
@@ -42,6 +49,7 @@
 param(
     [switch]$SkipDll,
     [switch]$SkipCal,
+    [switch]$KeepText,
     [string]$Database = $(if ($env:LP_DATABASE) { $env:LP_DATABASE } else { 'NAV' }),
     [string]$Server   = 'localhost'
 )
@@ -274,6 +282,47 @@ foreach ($o in $objects) {
     else { Step "$($o.Type) $($o.Id): Compiled=1" }
 }
 foreach ($b in $bad) { Fail $b }
+
+# ----------------------------------------------- текст обратно из базы (канон C/SIDE)
+# Импорт с компиляцией - это ещё и нормализация: платформа перекладывает свойства поля
+# в свой порядок, выравнивает вторую строку двуязычной подписи по первой и выстраивает
+# объекты по номерам типов. Рукописный файл всего этого не знает и расходится с базой
+# молча. Поэтому текст ЗАБИРАЕТСЯ обратно: в git лежит ровно то, что хранит платформа.
+if ($errors.Count -eq 0 -and -not $SkipCal -and -not $KeepText) {
+    $backTxt = Join-Path $logDir 'export-back.txt'
+    $idFrom  = ($objects | Measure-Object Id -Minimum).Minimum
+    $idTo    = ($objects | Measure-Object Id -Maximum).Maximum
+    $expLog  = Invoke-Finsql "Command=ExportObjects,File=`"$backTxt`",Filter=`"ID=$idFrom..$idTo`"" 'export-back.log'
+    if ($expLog) {
+        Fail "выгрузка текста из базы: $expLog"
+    } elseif (-not [IO.File]::Exists($backTxt)) {
+        # finsql умеет уйти молча, не написав ни лога, ни файла: без этой ветки шаг
+        # свалился бы чтением несуществующего файла вместо внятного отказа.
+        Fail 'выгрузка текста из базы не создала файл - текст не обновлён'
+    } else {
+        # Выгрузка идёт в кодировке C/SIDE, а рабочий файл - UTF-8 без BOM.
+        $back   = [Text.Encoding]::GetEncoding(866).GetString([IO.File]::ReadAllBytes($backTxt))
+        $inBase = @([regex]::Matches($back, '(?m)^OBJECT ([A-Za-z]+) ([0-9]+)') |
+                    ForEach-Object { "$($_.Groups[1].Value) $($_.Groups[2].Value)" })
+        $mine   = @($objects | ForEach-Object { "$($_.Type) $($_.Id)" })
+        $alien  = @($inBase | Where-Object { $mine -notcontains $_ })
+        # Фильтр берёт ДИАПАЗОН номеров, а в него мог заехать чужой объект. Записать
+        # такой текст в рабочий файл - молча принести в задачу чужое.
+        if ($alien.Count -gt 0) {
+            Fail ("в диапазоне ID $idFrom..$idTo лежат посторонние объекты, текст не обновлён: " + ($alien -join ', '))
+        }
+        elseif ($inBase.Count -ne $mine.Count) {
+            Fail "выгрузка вернула $($inBase.Count) объектов вместо $($mine.Count), текст не обновлён"
+        }
+        elseif ($back -ceq [IO.File]::ReadAllText($taskTxt, [Text.Encoding]::UTF8)) {
+            Step 'текст уже совпадает с выгрузкой C/SIDE'
+        }
+        else {
+            [IO.File]::WriteAllText($taskTxt, $back, (New-Object Text.UTF8Encoding($false)))
+            Step 'текст приведён к выгрузке C/SIDE - перевыгрузить .fob и обновить манифест'
+        }
+    }
+}
 
 if ($errors.Count -gt 0) {
     Write-Host "ИТОГ: ошибок $($errors.Count)." -ForegroundColor Red
