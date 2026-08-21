@@ -5777,7 +5777,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
           TempLine."Object Type" := CurObjType;
           TempLine."Object ID" := CurObjID;
           TempLine.Indent := 0;
-          TempLine.Line := COPYSTR(STRSUBSTNO(NoListingTxt,ObjectCaption(CurObjType,CurObjID),CurObjID),1,MAXSTRLEN(TempLine.Line));
+          TempLine.Line :=
+            COPYSTR(STRSUBSTNO(NoListingTxt,ObjectCaption(CurObjType,CurObjID),CurObjID),1,MAXSTRLEN(TempLine.Line));
           TempLine.INSERT;
           First := FALSE;
         END;
@@ -7950,7 +7951,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
               // настоящий кадр с одним оператором, а строк кода у нее нет ни одной, и
               // проваливаться в нее некуда. Подписчик висит на операторе заглушки,
               // поэтому запоминаем ее и делаем второй прыжок - уже из нее.
-              IF StubCount < MaxStubHops THEN BEGIN
+              IF StubCount < ARRAYLEN(StubFunc) THEN BEGIN
                 StubCount := StubCount + 1;
                 StubType[StubCount] := CalleeType;
                 StubID[StubCount] := CalleeID;
@@ -9281,7 +9282,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       TempLine.SETRANGE("Line Type",TempLine."Line Type"::Code);
       IF TempLine.FINDSET THEN
         REPEAT
-          IF Count < MaxMarkedLines THEN BEGIN
+          IF Count < ARRAYLEN(LineTxt) THEN BEGIN
             Count := Count + 1;
             LineTxt[Count] := TempLine.Line;
             Entry[Count] := TempLine."Source Entry No.";
@@ -9907,25 +9908,20 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
 
     LOCAL PROCEDURE MaxNavNodes@176() : Integer;
     BEGIN
-      // Сколько мест вызова держим раскрытыми разом. Держать вровень с размерностью
-      // ARRAY [20] у NavTargets и соседей: границу массива C/AL берет литералом, и
-      // задать ее отсюда нельзя - можно только с ней не разойтись.
-      EXIT(20);
+      // Сколько мест вызова держим раскрытыми разом. Число берем у САМОГО массива:
+      // границу C/AL пишет литералом, и держать рядом второй литерал - значит однажды
+      // поправить один из двух. Расширяя NavTargets, расширить и его спутников - NavFrom,
+      // NavParent, NavBodyOnly, Closed с NewNo в DropNode, Seen в OpenNodes: их границы
+      // C/AL тоже берет литералом, и отсюда до них не дотянуться.
+      EXIT(ARRAYLEN(NavTargets));
     END;
 
     LOCAL PROCEDURE MaxNavDepth@177() : Integer;
     BEGIN
       // Предел спуска при сборке вида: раскрытая функция может звать ту самую строку,
       // из которой ее раскрыли, и обход ходил бы по кругу. Глубже, чем открытых узлов,
-      // дерево не бывает, поэтому число то же.
-      EXIT(20);
-    END;
-
-    LOCAL PROCEDURE MaxStubHops@178() : Integer;
-    BEGIN
-      // Заглушки событий, через которые за один проход прыгаем на подписчиков. Вровень
-      // с ARRAY [8] у StubType и соседей.
-      EXIT(8);
+      // дерево не бывает - потому тут не свое число, а то же самое.
+      EXIT(MaxNavNodes);
     END;
 
     LOCAL PROCEDURE MaxOrphansShown@179() : Integer;
@@ -10057,8 +10053,9 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
     LOCAL PROCEDURE HalfShownMs@197() : Decimal;
     BEGIN
       // Половина последнего показанного знака. Сравнивать времена строже, чем их
-      // показывают, значит ловить округление, а не расхождение.
-      EXIT(0.0005);
+      // показывают, значит ловить округление, а не расхождение. Половину СЧИТАЕМ:
+      // 0,0005, написанное рядом с 0,001, - то же число, записанное второй раз.
+      EXIT(MsRounding / 2);
     END;
 
     LOCAL PROCEDURE RollupTolerantMs@198() : Decimal;
@@ -10092,12 +10089,6 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // Сколько примеров печатать в подробностях проверки: они для того, чтобы понять,
       // ЧТО нашлось, а не чтобы перечислить все.
       EXIT(3);
-    END;
-
-    LOCAL PROCEDURE MaxMarkedLines@203() : Integer;
-    BEGIN
-      // Вровень с ARRAY [40] у LineTxt и соседей в проверке разметки.
-      EXIT(40);
     END;
 
     LOCAL PROCEDURE CrText@204() : Text[1];
