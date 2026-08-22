@@ -2673,6 +2673,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       ChkLoadedHintTxt@1000000162 : TextConst 'ENU=a loaded run still knows the calls made from a line;RUS=загруженный замер по-прежнему знает вызовы со строки';
       ChkHeaviestTxt@1000000164 : TextConst 'ENU=every branch marks exactly one heaviest line;RUS=в каждом дереве отмечена ровно одна самая тяжелая строка';
       HeaviestTxt@1000000165 : TextConst 'ENU=marks %1, branches out of order %2;RUS=отметок %1, деревьев не в порядке %2';
+      ChkLoadedMarkTxt@1000000166 : TextConst 'ENU=a loaded run marks its heaviest lines too;RUS=загруженный замер тоже размечает свои тяжелые строки';
+      LoadedMarkTxt@1000000167 : TextConst 'ENU=marks after loading %1;RUS=отметок после загрузки %1';
       LoadedHintTxt@1000000163 : TextConst 'ENU=lines with call numbers %1, worst total ms %2;RUS=строк с числами вызова %1, наибольшее полное время %2';
       RootDoorTxt@1000000140 : TextConst 'ENU=objects without a single child: %1;RUS=объектов без единого потомка: %1';
       HeadersTxt@1000000076 : TextConst 'ENU=headers %1, broken %2;RUS=заголовков %1, нарушений %2';
@@ -7100,6 +7102,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       InNode@1000000029 : Integer;
       Marks@1000000030 : Integer;
       BadMark@1000000031 : Integer;
+      LoadedMarks@1000000032 : Integer;
     BEGIN
       // Раскрытые места - ДЕРЕВО, а не один путь: соседний вызов обязан раскрываться,
       // не закрывая уже раскрытый, а закрытие одного не должно гасить другой.
@@ -7228,6 +7231,18 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       Check(Passed,Total,Report,ChkLoadedEdgesTxt,EdgeBuf.COUNT > 0,
         STRSUBSTNO(LoadedEdgesTxt,EdgeBuf.COUNT));
       CheckLoadedEdges(TempLine,Passed,Total,Report);
+
+      // Отметку самой тяжелой строки ставит СБОРКА вида, а загрузка замера вид не
+      // собирает - его собирает страница следом, своим ResetNav. Здесь тот же путь, и
+      // отметки обязаны появиться снова: иначе у загруженного замера они держались бы
+      // на честном слове страницы, а такие слова тут уже дважды оказывались неправдой.
+      NavRoot(TempLine);
+      TempLine.RESET;
+      TempLine.SETRANGE(Heaviest,TRUE);
+      LoadedMarks := TempLine.COUNT;
+      TempLine.RESET;
+      Check(Passed,Total,Report,ChkLoadedMarkTxt,LoadedMarks > 0,
+        STRSUBSTNO(LoadedMarkTxt,LoadedMarks));
     END;
 
     LOCAL PROCEDURE CheckKeyAdvice@125(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
@@ -7712,11 +7727,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // кодюните 110201, и при отборе по отчету его не было бы ни в замере, ни в листинге -
       // а он и есть то, ради чего шаг заведен.
       StartTrace(0,0,0,0);
-      // Первое число - проходы шага "COUNT в цикле". Их было 2000, и шаг тянул
-      // демонстрацию заметно дольше остальных: каждый проход - свой запрос к базе.
-      // Двухсот хватает: подсказка про COUNT в цикле встает с полусотни выполнений,
-      // а шаг остается самым тяжелым по запросам, ради чего он и заведен.
-      DemoReport.SetLoad(200,2500,200,200000,2500);
+      DemoReport.SetLoad(2000,2500,200,200000,2500);
       DemoReport.RUNMODAL;
       StopTrace;
 
