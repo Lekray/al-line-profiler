@@ -273,9 +273,9 @@ OBJECT Table 110202 AL Profiler Run Line
                                                               RUS=Номер записи] }
     { 3   ;   ;Line Type           ;Option        ;CaptionML=[ENU=Line Type;
                                                               RUS=Тип строки];
-                                                   OptionCaptionML=[ENU=Object,Trigger/Function,Empty,Code;
-                                                                    RUS=Объект,Триггер/функция,Пусто,Код];
-                                                   OptionString=Object,Trigger/Function,Empty,Code }
+                                                   OptionCaptionML=[ENU=Object,Trigger/Function,Empty,Code,Edge;
+                                                                    RUS=Объект,Триггер/функция,Пусто,Код,Ребро вызова];
+                                                   OptionString=Object,Trigger/Function,Empty,Code,Edge }
     { 4   ;   ;Object Type         ;Option        ;CaptionML=[ENU=Object Type;
                                                               RUS=Тип объекта];
                                                    OptionCaptionML=[ENU=TableData,Table,Form,Report,Dataport,CodeUnit,XMLport,MenuSuite,Page,Query;
@@ -336,12 +336,32 @@ OBJECT Table 110202 AL Profiler Run Line
     { 52  ;   ;Can Expand          ;Boolean       ;CaptionML=[ENU=Can Expand;
                                                               RUS=Есть чем раскрыть];
                                                    Description=Со строки есть куда провалиться - в прогоне у нее было ребро вызова }
+    { 60  ;   ;Callee Object Type  ;Option        ;CaptionML=[ENU=Callee Object Type;
+                                                              RUS=Тип вызванного объекта];
+                                                   OptionCaptionML=[ENU=TableData,Table,Form,Report,Dataport,CodeUnit,XMLport,MenuSuite,Page,Query;
+                                                                    RUS=Данные таблицы,Таблица,Форма,Отчет,Дейтапорт,Кодовый модуль,XMLport,Меню,Страница,Запрос];
+                                                   OptionString=TableData,Table,Form,Report,Dataport,CodeUnit,XMLport,MenuSuite,Page,Query;
+                                                   Description=Только у строк типа Edge - вызванный объект }
+    { 61  ;   ;Callee Object ID    ;Integer       ;CaptionML=[ENU=Callee Object ID;
+                                                              RUS=Код вызванного объекта] }
+    { 62  ;   ;Callee Function     ;Text250       ;CaptionML=[ENU=Callee Function;
+                                                              RUS=Вызванная функция] }
+    { 63  ;   ;Edge Calls          ;Integer       ;CaptionML=[ENU=Edge Calls;
+                                                              RUS=Вызовов отсюда];
+                                                   BlankZero=Yes }
+    { 64  ;   ;Callee Total Calls  ;Integer       ;CaptionML=[ENU=Callee Total Calls;
+                                                              RUS=Вызовов отовсюду];
+                                                   BlankZero=Yes }
+    { 65  ;   ;Recursive           ;Boolean       ;CaptionML=[ENU=Recursive;
+                                                              RUS=Рекурсивное];
+                                                   Description=Вызванная функция уже стояла в стеке - время внешнего витка }
   }
   KEYS
   {
     {    ;Run No.,Entry No.                       ;Clustered=Yes }
     {    ;Run No.,Line Type,Object Type,Object ID  }
     {    ;Run No.,Self ms                          }
+    {    ;Run No.,Line Type,Object Type,Object ID,Line No. }
   }
   FIELDGROUPS
   {
@@ -2622,6 +2642,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       ObjKeptTxt@1000000155 : TextConst 'ENU=saved %1, loaded %2;RUS=сохранено %1, загружено %2';
       ChkDeadArrowTxt@1000000156 : TextConst 'ENU=every expansion arrow of a loaded run leads somewhere;RUS=у загруженного замера каждая стрелка раскрытия ведет куда-то';
       DeadArrowTxt@1000000157 : TextConst 'ENU=arrows %1, leading nowhere %2;RUS=стрелок %1, ведут в никуда %2';
+      ChkLoadedEdgesTxt@1000000158 : TextConst 'ENU=a loaded run keeps its call edges;RUS=загруженный замер сохраняет свои ребра вызова';
+      LoadedEdgesTxt@1000000159 : TextConst 'ENU=edges after loading %1;RUS=ребер после загрузки %1';
       RootDoorTxt@1000000140 : TextConst 'ENU=objects without a single child: %1;RUS=объектов без единого потомка: %1';
       HeadersTxt@1000000076 : TextConst 'ENU=headers %1, broken %2;RUS=заголовков %1, нарушений %2';
       ChkCmpTxt@1000000040 : TextConst 'ENU=comparison found lines on both sides;RUS=сравнение нашло строки с обеих сторон';
@@ -2645,7 +2667,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       RootFuncOnly@1000000073 : Boolean;
       DoorlessObjs@1000000138 : Text;
       GrandSelfSaved@1000000077 : Decimal;
-      EdgesLive@1000000078 : Boolean;
+      EdgeBuf@1000000078 : TEMPORARY Record 110202;
       InnerCall@1000000148 : TEMPORARY Record 110200;
       InnerKnown@1000000149 : Boolean;
       AdviseKeys@1000000094 : Boolean;
@@ -3039,16 +3061,17 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
 
       Rollup(TempLine,TempLine."Line Type"::"Trigger/Function");
       AttachPublisherTime(TempLine,TempMeas);
+      // Ребра снимаем с приемника ОДИН раз на весь замер и держим у себя. Спрашивают их
+      // трое - разметка стрелок, провал и подсказка "отсюда вызывали", - а у приемника
+      // они живут до следующего прогона и в базу сами не уезжают. Отсюда и порядок:
+      // сперва снять, потом считать по ним. Флага "ребра годны" больше нет: годность
+      // теперь не состояние, а наличие строк в буфере, и подставить в чужой замер числа
+      // прошлого прогона нечем.
+      FillEdges;
       // Время внутренних вызовов снимаем ДО сводки объектов: она вычитает его из суммы
       // полного времени функций.
       CollectInnerCalls;
       Rollup(TempLine,TempLine."Line Type"::Object);
-      // Ребра прогона годны с этой минуты: показанное собрано из ТЕКУЩЕГО приемника.
-      // Флаг обязан стоять ДО разметки раскрываемых строк - разметка сама спрашивает
-      // ребра и при опущенном флаге молча уходит ни с чем. Стоя после нее, он гасил
-      // разметку у КАЖДОГО первого замера за открытие страницы: у первого флаг еще
-      // лежал от инициализации, вторым все выглядело исправным.
-      EdgesLive := TRUE;
       MarkExpandable(TempLine);
 
       // Промахи считаем ПО ФАКТУ - по замерам, которые не легли никуда. Вычитание
@@ -3731,10 +3754,70 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       Header.MODIFY;
     END;
 
-    LOCAL PROCEDURE CollectInnerCalls@172();
+    LOCAL PROCEDURE FillEdges@219();
     VAR
       Rows@1000000000 : Integer;
       Index@1000000001 : Integer;
+      NextNo@1000000002 : Integer;
+    BEGIN
+      // Ребро - пара "вызывающая строка -> вызванная функция", снятая по кадрам ETW.
+      // Номер строки кладем таким, каким его дал приемник: сдвиг до листингового
+      // снимают на месте применения, и складывать его дважды нельзя.
+      EdgeBuf.RESET;
+      EdgeBuf.DELETEALL;
+      IF ISNULL(Receiver) THEN
+        EXIT;
+      // Минус единица в коде объекта и в номере строки снимает отбор совсем: нужны ВСЕ
+      // ребра замера, а не ребра одной строки.
+      Rows := Receiver.SelectEdges(0,-1,-1,'');
+      FOR Index := 0 TO Rows - 1 DO
+        IF Receiver.SelectEdgeRow(Index) THEN BEGIN
+          NextNo := NextNo + 1;
+          EdgeBuf.INIT;
+          EdgeBuf."Run No." := 0;
+          EdgeBuf."Entry No." := NextNo;
+          EdgeBuf."Line Type" := EdgeBuf."Line Type"::Edge;
+          EdgeBuf."Object Type" := Receiver.CurrentEdgeCallerObjectType;
+          EdgeBuf."Object ID" := Receiver.CurrentEdgeCallerObjectId;
+          EdgeBuf."Line No." := Receiver.CurrentEdgeCallerLineNo;
+          EdgeBuf."Function Name" :=
+            COPYSTR(Receiver.CurrentEdgeCallerFunctionName,1,MAXSTRLEN(EdgeBuf."Function Name"));
+          EdgeBuf."Callee Object Type" := Receiver.CurrentEdgeCalleeObjectType;
+          EdgeBuf."Callee Object ID" := Receiver.CurrentEdgeCalleeObjectId;
+          EdgeBuf."Callee Function" :=
+            COPYSTR(Receiver.CurrentEdgeFunctionName,1,MAXSTRLEN(EdgeBuf."Callee Function"));
+          EdgeBuf."Edge Calls" := Receiver.CurrentEdgeCalls;
+          EdgeBuf."Callee Total Calls" := Receiver.CurrentEdgeCalleeTotalCalls;
+          EdgeBuf.Recursive := Receiver.CurrentEdgeRecursive;
+          EdgeBuf."Total ms" := Receiver.CurrentEdgeTotalMs;
+          EdgeBuf."Self ms" := Receiver.CurrentEdgeSelfMs;
+          EdgeBuf.INSERT;
+        END;
+    END;
+
+    LOCAL PROCEDURE LoadEdges@220(RunNo@1000000000 : Integer);
+    VAR
+      RunLine@1000000001 : Record 110202;
+    BEGIN
+      // Ребра загруженного замера - те же самые, снятые при сборке и уехавшие в базу
+      // вместе со строками. Без них сохраненный замер терял и раскрытие, и подсказку
+      // "отсюда вызывали": приемник свои ребра до следующего прогона не держит.
+      EdgeBuf.RESET;
+      EdgeBuf.DELETEALL;
+      RunLine.RESET;
+      RunLine.SETCURRENTKEY("Run No.","Line Type","Object Type","Object ID","Line No.");
+      RunLine.SETRANGE("Run No.",RunNo);
+      RunLine.SETRANGE("Line Type",RunLine."Line Type"::Edge);
+      IF RunLine.FINDSET THEN
+        REPEAT
+          EdgeBuf := RunLine;
+          EdgeBuf."Run No." := 0;
+          EdgeBuf.INSERT;
+        UNTIL RunLine.NEXT = 0;
+    END;
+
+    LOCAL PROCEDURE CollectInnerCalls@172();
+    VAR
       ObjType@1000000002 : Integer;
       ObjID@1000000003 : Integer;
       NextNo@1000000004 : Integer;
@@ -3746,38 +3829,33 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       InnerCall.RESET;
       InnerCall.DELETEALL;
       InnerKnown := FALSE;
-      IF ISNULL(Receiver) THEN
+      EdgeBuf.RESET;
+      IF NOT EdgeBuf.FINDSET THEN
         EXIT;
-
-      // Минус единица в коде объекта и в номере строки снимает отбор совсем: нужны ВСЕ
-      // ребра замера, а не ребра одной строки.
-      Rows := Receiver.SelectEdges(0,-1,-1,'');
-      FOR Index := 0 TO Rows - 1 DO
-        IF Receiver.SelectEdgeRow(Index) THEN BEGIN
-          ObjType := Receiver.CurrentEdgeCallerObjectType;
-          ObjID := Receiver.CurrentEdgeCallerObjectId;
-          IF (ObjType = Receiver.CurrentEdgeCalleeObjectType) AND
-             (ObjID = Receiver.CurrentEdgeCalleeObjectId)
-          THEN BEGIN
+      REPEAT
+        ObjType := EdgeBuf."Object Type";
+        ObjID := EdgeBuf."Object ID";
+        IF (ObjType = EdgeBuf."Callee Object Type") AND (ObjID = EdgeBuf."Callee Object ID") THEN BEGIN
+          InnerCall.RESET;
+          InnerCall.SETCURRENTKEY("Object Type","Object ID","Line No.");
+          InnerCall.SETRANGE("Object Type",ObjType);
+          InnerCall.SETRANGE("Object ID",ObjID);
+          IF InnerCall.FINDFIRST THEN BEGIN
+            InnerCall."Total ms" := InnerCall."Total ms" + EdgeBuf."Total ms";
+            InnerCall.MODIFY;
+          END ELSE BEGIN
             InnerCall.RESET;
-            InnerCall.SETCURRENTKEY("Object Type","Object ID","Line No.");
-            InnerCall.SETRANGE("Object Type",ObjType);
-            InnerCall.SETRANGE("Object ID",ObjID);
-            IF InnerCall.FINDFIRST THEN BEGIN
-              InnerCall."Total ms" := InnerCall."Total ms" + Receiver.CurrentEdgeTotalMs;
-              InnerCall.MODIFY;
-            END ELSE BEGIN
-              InnerCall.RESET;
-              NextNo := NextNo + 1;
-              InnerCall.INIT;
-              InnerCall."Entry No." := NextNo;
-              InnerCall."Object Type" := ObjType;
-              InnerCall."Object ID" := ObjID;
-              InnerCall."Total ms" := Receiver.CurrentEdgeTotalMs;
-              InnerCall.INSERT;
-            END;
+            NextNo := NextNo + 1;
+            InnerCall.INIT;
+            InnerCall."Entry No." := NextNo;
+            InnerCall."Object Type" := ObjType;
+            InnerCall."Object ID" := ObjID;
+            InnerCall."Total ms" := EdgeBuf."Total ms";
+            InnerCall.INSERT;
           END;
         END;
+      UNTIL EdgeBuf.NEXT = 0;
+      EdgeBuf.RESET;
       // Флаг взводим ПОСЛЕ прохода: до него сводке нечего вычитать, и вычитать она
       // не должна.
       InnerKnown := TRUE;
@@ -4865,37 +4943,32 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
     LOCAL PROCEDURE MarkExpandable@150(VAR TempLine@1000000000 : TEMPORARY Record 110200);
     VAR
       Line@1000000001 : TEMPORARY Record 110200;
-      Rows@1000000002 : Integer;
-      Index@1000000003 : Integer;
     BEGIN
       // Какую строку есть чем раскрыть, знают РЕБРА вызова - те же, по которым идет и
-      // сам провал. Спрашиваем их ОДИН раз на весь результат: отбор ребер по строке
-      // стоил бы вызова в приемник на каждую строку листинга.
-      IF NOT EdgesLive THEN
-        EXIT;
-      IF ISNULL(Receiver) THEN
+      // сам провал. Идем по ним ОДИН раз на весь результат: отбор ребер на каждую
+      // строку листинга стоил бы прохода на строку.
+      EdgeBuf.RESET;
+      IF NOT EdgeBuf.FINDSET THEN
         EXIT;
       Line.COPY(TempLine,TRUE);
-      // Отрицательный код объекта снимает отбор совсем - берем все ребра прогона.
-      Rows := Receiver.SelectEdges(0,-1,-1,'');
-      FOR Index := 0 TO Rows - 1 DO
-        IF Receiver.SelectEdgeRow(Index) THEN BEGIN
-          Line.RESET;
-          Line.SETCURRENTKEY("Object Type","Object ID","Line No.");
-          Line.SETRANGE("Object Type",Receiver.CurrentEdgeCallerObjectType);
-          Line.SETRANGE("Object ID",Receiver.CurrentEdgeCallerObjectId);
-          // Смещение то же, что и у замеров: в листинге строка на единицу больше.
-          Line.SETRANGE("Line No.",Receiver.CurrentEdgeCallerLineNo + LineShift);
-          Line.SETRANGE("Line Type",Line."Line Type"::Code);
-          IF Line.FINDSET THEN
-            REPEAT
-              IF NOT Line."Can Expand" THEN BEGIN
-                Line."Can Expand" := TRUE;
-                Line.MODIFY;
-              END;
-            UNTIL Line.NEXT = 0;
-        END;
+      REPEAT
+        Line.RESET;
+        Line.SETCURRENTKEY("Object Type","Object ID","Line No.");
+        Line.SETRANGE("Object Type",EdgeBuf."Object Type");
+        Line.SETRANGE("Object ID",EdgeBuf."Object ID");
+        // Смещение то же, что и у замеров: в листинге строка на единицу больше.
+        Line.SETRANGE("Line No.",EdgeBuf."Line No." + LineShift);
+        Line.SETRANGE("Line Type",Line."Line Type"::Code);
+        IF Line.FINDSET THEN
+          REPEAT
+            IF NOT Line."Can Expand" THEN BEGIN
+              Line."Can Expand" := TRUE;
+              Line.MODIFY;
+            END;
+          UNTIL Line.NEXT = 0;
+      UNTIL EdgeBuf.NEXT = 0;
       Line.RESET;
+      EdgeBuf.RESET;
     END;
 
     LOCAL PROCEDURE CountExpandable@152(RunNo@1000000000 : Integer) : Integer;
@@ -4904,6 +4977,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
     BEGIN
       RunLine.RESET;
       RunLine.SETRANGE("Run No.",RunNo);
+      // Ребра лежат в той же таблице своим типом строки: считаем СТРОКИ листинга.
+      RunLine.SETFILTER("Line Type",'<>%1',RunLine."Line Type"::Edge);
       RunLine.SETRANGE("Can Expand",TRUE);
       EXIT(RunLine.COUNT);
     END;
@@ -5058,6 +5133,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       LastError@1000000007 : Text;
       MeasRows@1000000008 : Integer;
       Matched@1000000009 : Integer;
+      LastEntryNo@1000000010 : Integer;
     BEGIN
       // Сохраняем ПОЛНЫЙ листинг, а не то, что видно на экране. Показанное - это кадр
       // текущего проваливания: сохранив его, получали огрызок замера, который потом и
@@ -5119,7 +5195,23 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
         RunLine.Hint := TempLine.Hint;
         RunLine."Hint Severity" := TempLine."Hint Severity";
         RunLine.INSERT;
+        IF RunLine."Entry No." > LastEntryNo THEN
+          LastEntryNo := RunLine."Entry No.";
       UNTIL TempLine.NEXT = 0;
+
+      // Ребра вызова - такая же часть замера, как строки: без них сохраненный замер
+      // терял раскрытие. Ложатся сюда же, своим типом строки, а номера получают ПОСЛЕ
+      // последней строки листинга - ключ у таблицы один на всех.
+      EdgeBuf.RESET;
+      IF EdgeBuf.FINDSET THEN
+        REPEAT
+          RunLine := EdgeBuf;
+          RunLine."Run No." := ProfRun."Entry No.";
+          LastEntryNo := LastEntryNo + 1;
+          RunLine."Entry No." := LastEntryNo;
+          RunLine.INSERT;
+        UNTIL EdgeBuf.NEXT = 0;
+      EdgeBuf.RESET;
 
       EXIT(ProfRun."Entry No.");
     END;
@@ -5218,23 +5310,25 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
         IF TempLine."Line Type" = TempLine."Line Type"::Object THEN
           Total := Total + TempLine."Self ms";
       UNTIL RunLine.NEXT = 0;
+      // Ребра замера лежат в тех же сохраненных строках, своим типом, и приезжают
+      // вместе с ними: без них загруженный замер терял и раскрытие вызовов, и подсказку
+      // "отсюда вызывали" - приемник свои ребра до следующего прогона не держит.
+      LoadEdges(RunNo);
       // Заголовки пересобираем из сохраненных строк, а не берем как есть: их сводные
       // числа со временем меняли смысл, и старый замер иначе показывал бы одно, а
       // свежий - другое. Своего времени заголовка пересборка не двигает - те же дети.
-      // Полное время ОБЪЕКТА - исключение: оно считается по ребрам, а ребер у
-      // сохраненного замера нет вовсе. Пересчет свернул бы его в сумму полного времени
-      // функций, где внутренние вызовы лежат дважды, поэтому сводка оставит там
-      // сохраненное число.
+      // Полное время ОБЪЕКТА не пересчитываем даже теперь, когда ребра под рукой:
+      // сохраненное число посчитано ИМИ ЖЕ при сборке, и второй счет тех же ребер может
+      // разойтись с ним только округлением.
       InnerKnown := FALSE;
       Rollup(TempLine,TempLine."Line Type"::"Trigger/Function");
       Rollup(TempLine,TempLine."Line Type"::Object);
-      // Ребра живут только в приемнике и в базу не сохраняются, а приемник
-      // одноэкземплярный: без этого флага в загруженный замер подставились бы числа
-      // ЧУЖОГО, последнего живого прогона.
       GrandSelfSaved := Total;
-      EdgesLive := FALSE;
       CaptureFull(TempLine);
-      DropDeadArrows(TempLine);
+      // Замер, сохраненный ДО появления ребер в базе, приезжает без них: раскрывать по
+      // ним нечего, и обещать стрелкой нечего тоже. У замера с ребрами гасить нечего.
+      IF EdgeBuf.ISEMPTY THEN
+        DropDeadArrows(TempLine);
       TempLine.RESET;
     END;
 
@@ -5442,8 +5536,6 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
     LOCAL PROCEDURE EdgeTargets@97(VAR Anchor@1000000000 : TEMPORARY Record 110200) : Text;
     VAR
       Names@1000000001 : Text;
-      Rows@1000000003 : Integer;
-      Index@1000000004 : Integer;
       StubType@1000000005 : ARRAY [8] OF Integer;
       StubID@1000000006 : ARRAY [8] OF Integer;
       StubFunc@1000000007 : ARRAY [8] OF Text[250];
@@ -5456,24 +5548,22 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
     BEGIN
       // Ребро - пара "вызывающая строка -> вызванная функция", снятая по кадрам ETW.
       // Строка издателя зовет OnBeforeX(...), а отрабатывает подписчик из ЧУЖОГО
-      // объекта: по тексту строки его не найти ни при какой ловкости разбора.
-      IF NOT EdgesLive THEN
-        EXIT('');
-      IF ISNULL(Receiver) THEN
-        EXIT('');
-      // Без номера строки отбор ребер в приемнике снимается совсем, и в цели ушли бы
-      // ВСЕ вызовы объекта. Нулевая строка бывает у замера, собранного не по журналу
-      // покрытия, - там проваливаться и правда некуда.
+      // объекта: по тексту строки его не найти ни при какой ловкости разбора. У замера
+      // без ребер буфер пуст, целей отсюда не будет вовсе, и разбор текста возьмет свое.
       IF Anchor."Line No." <= 0 THEN
         EXIT('');
-      // Номер строки приемник хранит так, как прислал ETW, - на единицу меньше
+      // Номер строки в ребре лежит так, как прислал ETW, - на единицу меньше
       // листингового; тот же сдвиг, что и при сборке замеров.
-      Rows := Receiver.SelectEdges(Anchor."Object Type",Anchor."Object ID",Anchor."Line No." - LineShift,'');
-      FOR Index := 0 TO Rows - 1 DO
-        IF Receiver.SelectEdgeRow(Index) THEN BEGIN
-          CalleeType := Receiver.CurrentEdgeCalleeObjectType;
-          CalleeID := Receiver.CurrentEdgeCalleeObjectId;
-          CalleeFunc := COPYSTR(Receiver.CurrentEdgeFunctionName,1,MAXSTRLEN(CalleeFunc));
+      EdgeBuf.RESET;
+      EdgeBuf.SETCURRENTKEY("Run No.","Line Type","Object Type","Object ID","Line No.");
+      EdgeBuf.SETRANGE("Object Type",Anchor."Object Type");
+      EdgeBuf.SETRANGE("Object ID",Anchor."Object ID");
+      EdgeBuf.SETRANGE("Line No.",Anchor."Line No." - LineShift);
+      IF EdgeBuf.FINDSET THEN
+        REPEAT
+          CalleeType := EdgeBuf."Callee Object Type";
+          CalleeID := EdgeBuf."Callee Object ID";
+          CalleeFunc := EdgeBuf."Callee Function";
           // Тип вне списка объектов C/SIDE - это кадр платформы или незнакомое имя.
           // Листинга у него нет и быть не может, а трамплином он служить не должен:
           // внуки встали бы в цели как прямые вызовы строки.
@@ -5496,20 +5586,25 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
                 StubID[StubCount] := CalleeID;
                 StubFunc[StubCount] := CalleeFunc;
               END;
-        END;
+        UNTIL EdgeBuf.NEXT = 0;
 
-      // Второй прыжок. Дальше не идем намеренно: цепочка "строка - заглушка - подписчик"
-      // ровно такой длины, а бесконечный обход по ребрам увел бы вглубь всего прогона.
+      // Второй прыжок - уже не со строки, а ИЗ функции-заглушки: у ребра для этого есть
+      // имя вызывающей функции. Дальше не идем намеренно: цепочка "строка - заглушка -
+      // подписчик" ровно такой длины, а бесконечный обход увел бы вглубь всего прогона.
       FOR Stub := 1 TO StubCount DO BEGIN
-        Rows := Receiver.SelectEdgesFromFunction(StubType[Stub],StubID[Stub],StubFunc[Stub]);
-        FOR Index := 0 TO Rows - 1 DO
-          IF Receiver.SelectEdgeRow(Index) THEN BEGIN
-            CalleeType := Receiver.CurrentEdgeCalleeObjectType;
-            CalleeFunc := COPYSTR(Receiver.CurrentEdgeFunctionName,1,MAXSTRLEN(CalleeFunc));
+        EdgeBuf.RESET;
+        EdgeBuf.SETRANGE("Object Type",StubType[Stub]);
+        EdgeBuf.SETRANGE("Object ID",StubID[Stub]);
+        EdgeBuf.SETRANGE("Function Name",StubFunc[Stub]);
+        IF EdgeBuf.FINDSET THEN
+          REPEAT
+            CalleeType := EdgeBuf."Callee Object Type";
+            CalleeFunc := EdgeBuf."Callee Function";
             IF IsCSideObjectType(CalleeType) THEN
-              IF AddTarget(Names,CalleeType,Receiver.CurrentEdgeCalleeObjectId,CalleeFunc) THEN;
-          END;
+              IF AddTarget(Names,CalleeType,EdgeBuf."Callee Object ID",CalleeFunc) THEN;
+          UNTIL EdgeBuf.NEXT = 0;
       END;
+      EdgeBuf.RESET;
       EXIT(Names);
     END;
 
@@ -5885,47 +5980,45 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
 
     LOCAL PROCEDURE GetEdge@96(VAR Caller@1000000000 : TEMPORARY Record 110200;VAR Callee@1000000001 : TEMPORARY Record 110200;VAR EdgeCalls@1000000002 : Integer;VAR EdgeTotalCalls@1000000003 : Integer;VAR EdgeTotal@1000000004 : Decimal;VAR EdgeSelf@1000000005 : Decimal;VAR EdgeRecursive@1000000006 : Boolean) : Boolean;
     VAR
-      Rows@1000000007 : Integer;
-      Index@1000000008 : Integer;
       CalleeShort@1000000009 : Text[250];
+      Found@1000000010 : Boolean;
     BEGIN
-      // Ребер у сохраненного замера нет: приемник их в базу не отдает. Проверка первой
-      // строкой, иначе в чужой замер попали бы числа последнего живого прогона.
-      IF NOT EdgesLive THEN
-        EXIT(FALSE);
-      IF ISNULL(Receiver) THEN
-        EXIT(FALSE);
       // Без номера строки отбор ребер снимается, и числа "отсюда" пришли бы от первого
       // попавшегося вызова того же имени.
       IF Caller."Line No." <= 0 THEN
         EXIT(FALSE);
 
-      // Имя вызванной функции в приемнике - голое, из события ETW; в листинге у
-      // заголовка стоит подпись целиком. Поэтому отбор по имени приемнику НЕ отдаем,
-      // а сводим на своей стороне по координатам объекта и короткому имени.
+      // Имя вызванной функции в ребре - голое, из события ETW; в листинге у заголовка
+      // стоит подпись целиком. Поэтому сводим по координатам объекта и КОРОТКОМУ имени.
       CalleeShort := UPPERCASE(ShortName(Callee.Line));
       // DD 18.08.2026 LineProfiler >>
-      // Приемник хранит номер строки так, как его прислал ETW, - на LineShift меньше
+      // Номер строки в ребре лежит так, как его прислал ETW, - на LineShift меньше
       // листингового; тот же сдвиг, что и при сборке замеров, и зашивать его нельзя.
       // Рядом, в провале по ребрам, стоит уже снятое смещение, а здесь оставалась
       // единица: при смещении 0 ребра не находились вовсе, и числа "отсюда" молча
       // пропадали со строки.
-      Rows := Receiver.SelectEdges(Caller."Object Type",Caller."Object ID",Caller."Line No." - LineShift,'');
+      EdgeBuf.RESET;
+      EdgeBuf.SETCURRENTKEY("Run No.","Line Type","Object Type","Object ID","Line No.");
+      EdgeBuf.SETRANGE("Object Type",Caller."Object Type");
+      EdgeBuf.SETRANGE("Object ID",Caller."Object ID");
+      EdgeBuf.SETRANGE("Line No.",Caller."Line No." - LineShift);
       // DD 18.08.2026 LineProfiler <<
-      FOR Index := 0 TO Rows - 1 DO
-        IF Receiver.SelectEdgeRow(Index) THEN
-          IF (Receiver.CurrentEdgeCalleeObjectType = Callee."Object Type") AND
-             (Receiver.CurrentEdgeCalleeObjectId = Callee."Object ID") AND
-             (UPPERCASE(Receiver.CurrentEdgeFunctionName) = CalleeShort)
+      IF EdgeBuf.FINDSET THEN
+        REPEAT
+          IF (EdgeBuf."Callee Object Type" = Callee."Object Type") AND
+             (EdgeBuf."Callee Object ID" = Callee."Object ID") AND
+             (UPPERCASE(EdgeBuf."Callee Function") = CalleeShort)
           THEN BEGIN
-            EdgeCalls := Receiver.CurrentEdgeCalls;
-            EdgeTotalCalls := Receiver.CurrentEdgeCalleeTotalCalls;
-            EdgeTotal := Receiver.CurrentEdgeTotalMs;
-            EdgeSelf := Receiver.CurrentEdgeSelfMs;
-            EdgeRecursive := Receiver.CurrentEdgeRecursive;
-            EXIT(TRUE);
+            EdgeCalls := EdgeBuf."Edge Calls";
+            EdgeTotalCalls := EdgeBuf."Callee Total Calls";
+            EdgeTotal := EdgeBuf."Total ms";
+            EdgeSelf := EdgeBuf."Self ms";
+            EdgeRecursive := EdgeBuf.Recursive;
+            Found := TRUE;
           END;
-      EXIT(FALSE);
+        UNTIL Found OR (EdgeBuf.NEXT = 0);
+      EdgeBuf.RESET;
+      EXIT(Found);
     END;
 
     LOCAL PROCEDURE VisibleAt@90(VAR Line@1000000000 : Record 110200;NodeNo@1000000001 : Integer) : Boolean;
@@ -6912,6 +7005,13 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       TempLine.RESET;
       Check(Passed,Total,Report,ChkDeadArrowTxt,(Arrows > 0) AND (Dead = 0),
         STRSUBSTNO(DeadArrowTxt,Arrows,Dead));
+
+      // Стрелки живы не сами по себе, а потому что доехали РЕБРА: без них загруженный
+      // замер терял и раскрытие, и подсказку "отсюда вызывали". Считаем их в буфере -
+      // он и есть единственный источник ребер что для живого замера, что для этого.
+      EdgeBuf.RESET;
+      Check(Passed,Total,Report,ChkLoadedEdgesTxt,EdgeBuf.COUNT > 0,
+        STRSUBSTNO(LoadedEdgesTxt,EdgeBuf.COUNT));
     END;
 
     LOCAL PROCEDURE CheckKeyAdvice@125(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
