@@ -689,9 +689,9 @@ OBJECT Table 110204 AL Profiler Setup
       // пользователь" и "поле появилось позже этой строки". Их и разделяет номер
       // поколения: у прежних строк он нулевой, а у новых приходит из InitValue.
       // Следующее новое поле поднимает номер, а не выдумывает себе новый признак.
-      IF "Setup Version" < 1 THEN BEGIN
+      IF "Setup Version" < SetupVersionNow THEN BEGIN
         "Show Demo Run" := Fresh."Show Demo Run";
-        "Setup Version" := 1;
+        "Setup Version" := SetupVersionNow;
         MODIFY;
       END;
       IF "SQL Text Max Length" <> 0 THEN
@@ -705,15 +705,36 @@ OBJECT Table 110204 AL Profiler Setup
     PROCEDURE ResetToDefaults@3();
     VAR
       SavedKey@1000000000 : Code[10];
+      Fresh@1000000001 : Record 110204;
+      Target@1000000002 : Record 110204;
     BEGIN
       // INIT возвращает полям их InitValue - те же значения, с которыми настройка
       // заводится при первом обращении. Первичный ключ переживает сброс, иначе
       // единственная строка настройки превратилась бы во вторую.
+      // Но INIT нельзя звать на СВОЕЙ записи, а звали именно так: вместе с полями он
+      // стирает отметку версии, по которой платформа узнает прочитанную строку, и
+      // запись со СТРАНИЦЫ после этого падает с "мы только что обновили эту страницу" -
+      // кнопка не срабатывала вовсе. Поэтому умолчания кладем ЧУЖОЙ записью, а свою
+      // перечитываем: страница получает готовую строку, а не обломок.
       SavedKey := "Primary Key";
-      INIT;
-      "Primary Key" := SavedKey;
-      IF NOT MODIFY THEN
-        INSERT;
+      Fresh.INIT;
+      Fresh."Primary Key" := SavedKey;
+      // Версия строки - не настройка, а отметка переноса. Сбросив ее в ноль, сброс
+      // умолчаний натравил бы сторожей новых полей на уже полную строку.
+      Fresh."Setup Version" := SetupVersionNow;
+      IF Target.GET(SavedKey) THEN BEGIN
+        Target := Fresh;
+        Target.MODIFY;
+      END ELSE
+        Fresh.INSERT;
+      GET(SavedKey);
+    END;
+
+    LOCAL PROCEDURE SetupVersionNow@5() : Integer;
+    BEGIN
+      // Версия строки настройки: о ней договариваются двое - сторож новых полей и сброс
+      // к умолчаниям, - и числом она стояла бы в обоих.
+      EXIT(1);
     END;
 
     PROCEDURE FolderPath@2() : Text;
@@ -2644,6 +2665,10 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       DeadArrowTxt@1000000157 : TextConst 'ENU=arrows %1, leading nowhere %2;RUS=стрелок %1, ведут в никуда %2';
       ChkLoadedEdgesTxt@1000000158 : TextConst 'ENU=a loaded run keeps its call edges;RUS=загруженный замер сохраняет свои ребра вызова';
       LoadedEdgesTxt@1000000159 : TextConst 'ENU=edges after loading %1;RUS=ребер после загрузки %1';
+      ChkCrossObjTxt@1000000160 : TextConst 'ENU=a loaded run still opens the subscriber in another object;RUS=загруженный замер по-прежнему открывает подписчика в чужом объекте';
+      CrossObjTxt@1000000161 : TextConst 'ENU=lines leading into the other object %1;RUS=строк, ведущих в чужой объект %1';
+      ChkLoadedHintTxt@1000000162 : TextConst 'ENU=a loaded run still knows the calls made from a line;RUS=загруженный замер по-прежнему знает вызовы со строки';
+      LoadedHintTxt@1000000163 : TextConst 'ENU=lines with call numbers %1, worst total ms %2;RUS=строк с числами вызова %1, наибольшее полное время %2';
       RootDoorTxt@1000000140 : TextConst 'ENU=objects without a single child: %1;RUS=объектов без единого потомка: %1';
       HeadersTxt@1000000076 : TextConst 'ENU=headers %1, broken %2;RUS=заголовков %1, нарушений %2';
       ChkCmpTxt@1000000040 : TextConst 'ENU=comparison found lines on both sides;RUS=сравнение нашло строки с обеих сторон';
@@ -6786,6 +6811,98 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       EXIT(Found);
     END;
 
+    LOCAL PROCEDURE CheckLoadedEdges@221(VAR TempLine@1000000000 : TEMPORARY Record 110200;VAR Passed@1000000001 : Integer;VAR Total@1000000002 : Integer;VAR Report@1000000003 : Text);
+    VAR
+      Edge@1000000004 : TEMPORARY Record 110202;
+      Caller@1000000005 : TEMPORARY Record 110200;
+      Callee@1000000006 : TEMPORARY Record 110200;
+      SubToken@1000000007 : Text;
+      Cross@1000000008 : Integer;
+      Hints@1000000009 : Integer;
+      Calls@1000000010 : Integer;
+      TotalCalls@1000000011 : Integer;
+      EdgeTotal@1000000012 : Decimal;
+      EdgeSelf@1000000013 : Decimal;
+      Recursive@1000000014 : Boolean;
+      WorstMs@1000000015 : Decimal;
+      TypeNo@1000000016 : Integer;
+      CalleeShort@1000000017 : Text[250];
+    BEGIN
+      // Две вещи, которые умеет ТОЛЬКО ребро, и обе - на загруженном замере.
+      //
+      // Первая: путь в ЧУЖОЙ объект. Строка зовет издателя события, у издателя тела нет,
+      // и настоящую работу делает подписчик из другого объекта - по тексту строки его
+      // не найти ни при какой ловкости разбора. Дотуда ведет второй прыжок по ребрам,
+      // из функции-заглушки, и проверить его больше нечем.
+      //
+      // Вторая: числа "отсюда вызывали N раз" на строке вызова. Их дает GetEdge, и после
+      // загрузки они либо есть, либо замер снова стал половиной инструмента.
+      //
+      // Свой курсор по ребрам обязателен: и провал, и GetEdge ходят по тому же буферу
+      // своими отборами, и общий курсор они бы сбили на первом же вызове.
+      Edge.COPY(EdgeBuf,TRUE);
+      Edge.RESET;
+      Caller.COPY(TempLine,TRUE);
+      Callee.COPY(TempLine,TRUE);
+
+      TypeNo := Caller."Object Type"::CodeUnit;
+      SubToken := FORMAT(TypeNo) + TokenSep + FORMAT(DemoSubscriberID) + TokenSep;
+
+      Caller.RESET;
+      Caller.SETRANGE("Line Type",Caller."Line Type"::Code);
+      IF Caller.FINDSET THEN
+        REPEAT
+          IF Caller."Can Expand" THEN
+            IF STRPOS(NavTargetsOf(Caller."Entry No.",Caller.Line),SubToken) > 0 THEN
+              Cross := Cross + 1;
+        UNTIL Caller.NEXT = 0;
+      Caller.RESET;
+
+      IF Edge.FINDSET THEN
+        REPEAT
+          // Строка вызова: у ребра номер лежит так, как прислал ETW, - на единицу меньше
+          // листингового.
+          Caller.RESET;
+          Caller.SETCURRENTKEY("Object Type","Object ID","Line No.");
+          Caller.SETRANGE("Object Type",Edge."Object Type");
+          Caller.SETRANGE("Object ID",Edge."Object ID");
+          Caller.SETRANGE("Line No.",Edge."Line No." + LineShift);
+          Caller.SETRANGE("Line Type",Caller."Line Type"::Code);
+          IF Caller.FINDFIRST THEN BEGIN
+            // Заголовок вызванной функции: имя в ребре голое, в листинге - подпись
+            // целиком, поэтому сводим по короткому имени.
+            CalleeShort := UPPERCASE(Edge."Callee Function");
+            Callee.RESET;
+            Callee.SETRANGE("Object Type",Edge."Callee Object Type");
+            Callee.SETRANGE("Object ID",Edge."Callee Object ID");
+            Callee.SETRANGE("Line Type",Callee."Line Type"::"Trigger/Function");
+            IF Callee.FINDSET THEN
+              REPEAT
+                IF UPPERCASE(ShortName(Callee.Line)) = CalleeShort THEN
+                  IF GetEdge(Caller,Callee,Calls,TotalCalls,EdgeTotal,EdgeSelf,Recursive) THEN
+                    IF Calls > 0 THEN BEGIN
+                      Hints := Hints + 1;
+                      IF EdgeTotal > WorstMs THEN
+                        WorstMs := EdgeTotal;
+                    END;
+              UNTIL Callee.NEXT = 0;
+          END;
+        UNTIL Edge.NEXT = 0;
+      Caller.RESET;
+      Callee.RESET;
+
+      Check(Passed,Total,Report,ChkCrossObjTxt,Cross > 0,STRSUBSTNO(CrossObjTxt,Cross));
+      Check(Passed,Total,Report,ChkLoadedHintTxt,(Hints > 0) AND (WorstMs > 0),
+        STRSUBSTNO(LoadedHintTxt,Hints,FORMAT(ROUND(WorstMs,MsRounding))));
+    END;
+
+    LOCAL PROCEDURE DemoSubscriberID@222() : Integer;
+    BEGIN
+      // Кодюнит демонстрационного подписчика. Обкатка знает его в лицо: путь к нему -
+      // единственное, что нельзя пройти по тексту строки, и проверять надо именно его.
+      EXIT(110201);
+    END;
+
     LOCAL PROCEDURE CheckObjectTotal@174(RunNo@1000000016 : Integer;VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
     VAR
       TempLine@1000000003 : TEMPORARY Record 110200;
@@ -7012,6 +7129,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       EdgeBuf.RESET;
       Check(Passed,Total,Report,ChkLoadedEdgesTxt,EdgeBuf.COUNT > 0,
         STRSUBSTNO(LoadedEdgesTxt,EdgeBuf.COUNT));
+      CheckLoadedEdges(TempLine,Passed,Total,Report);
     END;
 
     LOCAL PROCEDURE CheckKeyAdvice@125(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
