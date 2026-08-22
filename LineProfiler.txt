@@ -92,6 +92,9 @@ OBJECT Table 110200 AL Line Profiler Line
     { 56  ;   ;Can Expand          ;Boolean       ;CaptionML=[ENU=Can Expand;
                                                               RUS=Есть чем раскрыть];
                                                    Description=Со строки есть куда провалиться - приемник видел вызов из нее }
+    { 57  ;   ;Heaviest            ;Boolean       ;CaptionML=[ENU=Heaviest in Branch;
+                                                              RUS=Самая тяжелая в дереве];
+                                                   Description=Наибольшее свое время среди строк кода своего дерева - у нее и красится свое время }
   }
   KEYS
   {
@@ -2668,6 +2671,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       ChkCrossObjTxt@1000000160 : TextConst 'ENU=a loaded run still opens the subscriber in another object;RUS=загруженный замер по-прежнему открывает подписчика в чужом объекте';
       CrossObjTxt@1000000161 : TextConst 'ENU=lines leading into the other object %1;RUS=строк, ведущих в чужой объект %1';
       ChkLoadedHintTxt@1000000162 : TextConst 'ENU=a loaded run still knows the calls made from a line;RUS=загруженный замер по-прежнему знает вызовы со строки';
+      ChkHeaviestTxt@1000000164 : TextConst 'ENU=every branch marks exactly one heaviest line;RUS=в каждом дереве отмечена ровно одна самая тяжелая строка';
+      HeaviestTxt@1000000165 : TextConst 'ENU=marks %1, branches out of order %2;RUS=отметок %1, деревьев не в порядке %2';
       LoadedHintTxt@1000000163 : TextConst 'ENU=lines with call numbers %1, worst total ms %2;RUS=строк с числами вызова %1, наибольшее полное время %2';
       RootDoorTxt@1000000140 : TextConst 'ENU=objects without a single child: %1;RUS=объектов без единого потомка: %1';
       HeadersTxt@1000000076 : TextConst 'ENU=headers %1, broken %2;RUS=заголовков %1, нарушений %2';
@@ -5775,7 +5780,65 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       BuildRootFuncs;
       BuildDoorless;
       EmitLevel(TempLine,0,0,Seq,0);
+      MarkHeaviest(TempLine);
       TempLine.RESET;
+    END;
+
+    LOCAL PROCEDURE MarkHeaviest@223(VAR TempLine@1000000000 : TEMPORARY Record 110200);
+    VAR
+      Line@1000000001 : TEMPORARY Record 110200;
+      Node@1000000002 : Integer;
+      BestEntry@1000000003 : Integer;
+      BestMs@1000000004 : Decimal;
+    BEGIN
+      // В каждом дереве своя самая тяжелая строка. Дерево тут не образ, а УЗЕЛ раскрытия:
+      // у корня он нулевой, у каждого раскрытого вызова свой, и узлов на экране бывает
+      // сразу несколько - одно общее чемпионство сказало бы только про самое горячее
+      // место всего замера, а смотрят в раскрытую ветку.
+      //
+      // Сравниваем только строки КОДА: у заголовка свое время - сумма его строк, и он
+      // побеждал бы в своем дереве всегда, не сказав ничего нового.
+      Line.COPY(TempLine,TRUE);
+      // Гасим прежние отметки: вид собирается из полного листинга, а тот помнит разметку
+      // предыдущего вида - без этого чемпион закрытой ветки остался бы красным.
+      // Идем по ВСЕМ строкам, а не по отобранным признаком: снятый признак вывел бы
+      // строку из отбора, и NEXT перескочил бы через соседнюю - та же ловушка, что
+      // ловилась на гашении мертвых стрелок.
+      Line.RESET;
+      IF Line.FINDSET THEN
+        REPEAT
+          IF Line.Heaviest THEN BEGIN
+            Line.Heaviest := FALSE;
+            Line.MODIFY;
+          END;
+        UNTIL Line.NEXT = 0;
+
+      FOR Node := 0 TO NavCount DO BEGIN
+        BestEntry := 0;
+        BestMs := 0;
+        Line.RESET;
+        Line.SETRANGE("Nav Node",Node);
+        Line.SETRANGE("Line Type",Line."Line Type"::Code);
+        IF Line.FINDSET THEN
+          REPEAT
+            // Строгое сравнение оставляет чемпионство за ПЕРВОЙ из равных: строки идут
+            // в порядке показа, и метка не прыгает по одинаковым числам при пересборке.
+            IF Line."Self ms" > BestMs THEN BEGIN
+              BestMs := Line."Self ms";
+              BestEntry := Line."Entry No.";
+            END;
+          UNTIL Line.NEXT = 0;
+        // Дерево, где время никому не принадлежит, чемпиона не получает: красная метка
+        // на нуле - это не подсказка, а шум.
+        IF (BestEntry <> 0) AND (BestMs > 0) THEN BEGIN
+          Line.RESET;
+          IF Line.GET(BestEntry) THEN BEGIN
+            Line.Heaviest := TRUE;
+            Line.MODIFY;
+          END;
+        END;
+      END;
+      Line.RESET;
     END;
 
     LOCAL PROCEDURE BuildDoorless@162();
@@ -7032,6 +7095,11 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       RunNo@1000000023 : Integer;
       Arrows@1000000024 : Integer;
       Dead@1000000025 : Integer;
+      BestMs@1000000027 : Decimal;
+      MarkMs@1000000028 : Decimal;
+      InNode@1000000029 : Integer;
+      Marks@1000000030 : Integer;
+      BadMark@1000000031 : Integer;
     BEGIN
       // Раскрытые места - ДЕРЕВО, а не один путь: соседний вызов обязан раскрываться,
       // не закрывая уже раскрытый, а закрытие одного не должно гасить другой.
@@ -7100,6 +7168,36 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
         STRSUBSTNO(StayTxt,StayFrom,StayRet));
       Check(Passed,Total,Report,ChkExpandTxt,(Flagged > 0) AND (NOT Missing),
         STRSUBSTNO(ExpandTxt,Flagged,Count) + Marked);
+
+      // Самая тяжелая строка КАЖДОГО дерева: ровно одна отметка на узел, и стоит она на
+      // строке с наибольшим своим временем. Дерево без времени чемпиона не получает,
+      // поэтому такие узлы в счет не идут вовсе.
+      FOR Node := 0 TO NavCount DO BEGIN
+        BestMs := 0;
+        MarkMs := 0;
+        InNode := 0;
+        TempLine.RESET;
+        TempLine.SETRANGE("Nav Node",Node);
+        TempLine.SETRANGE("Line Type",TempLine."Line Type"::Code);
+        IF TempLine.FINDSET THEN
+          REPEAT
+            IF TempLine."Self ms" > BestMs THEN
+              BestMs := TempLine."Self ms";
+            IF TempLine.Heaviest THEN BEGIN
+              InNode := InNode + 1;
+              MarkMs := TempLine."Self ms";
+            END;
+          UNTIL TempLine.NEXT = 0;
+        TempLine.RESET;
+        IF BestMs > 0 THEN BEGIN
+          Marks := Marks + InNode;
+          IF (InNode <> 1) OR (MarkMs <> BestMs) THEN
+            BadMark := BadMark + 1;
+        END;
+      END;
+      Check(Passed,Total,Report,ChkHeaviestTxt,(Marks > 0) AND (BadMark = 0),
+        STRSUBSTNO(HeaviestTxt,Marks,BadMark));
+
       NavRoot(TempLine);
 
       // Тот же вопрос СОХРАНЕННОМУ замеру: стрелка обязана вести хоть куда-то. Признак
@@ -7614,7 +7712,11 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // кодюните 110201, и при отборе по отчету его не было бы ни в замере, ни в листинге -
       // а он и есть то, ради чего шаг заведен.
       StartTrace(0,0,0,0);
-      DemoReport.SetLoad(2000,2500,200,200000,2500);
+      // Первое число - проходы шага "COUNT в цикле". Их было 2000, и шаг тянул
+      // демонстрацию заметно дольше остальных: каждый проход - свой запрос к базе.
+      // Двухсот хватает: подсказка про COUNT в цикле встает с полусотни выполнений,
+      // а шаг остается самым тяжелым по запросам, ради чего он и заведен.
+      DemoReport.SetLoad(200,2500,200,200000,2500);
       DemoReport.RUNMODAL;
       StopTrace;
 
@@ -8728,7 +8830,7 @@ OBJECT Page 110200 AL Line Profiler
                            RUS=Определяет время самой строки, без вызовов, которые она делает. У заголовка функции это сумма по строкам самой функции - тоже без тех функций, которые они зовут.];
                 ApplicationArea=#All;
                 SourceExpr="Self ms";
-                StyleExpr=HeatStyle }
+                StyleExpr=SelfStyle }
 
     { 23  ;2   ;Field     ;
                 Name=SelfPercent;
@@ -8887,6 +8989,7 @@ OBJECT Page 110200 AL Line Profiler
       TargetObjectName@1000000028 : Text[30];
       LineStyle@1000000012 : Text[30];
       HeatStyle@1000000013 : Text[30];
+      SelfStyle@1000000100 : Text[30];
       HintStyle@1000000014 : Text[30];
       LostEventsStyle@1000000015 : Text[30];
       UnmatchedStyle@1000000018 : Text[30];
@@ -9176,6 +9279,14 @@ OBJECT Page 110200 AL Line Profiler
           ELSE
             IF "Self %" >= WarmLinePct THEN
               HeatStyle := 'Ambiguous';
+
+      // Свое время красится не только жаром: самая тяжелая строка СВОЕГО дерева стоит
+      // красной всегда, даже когда по доле она и не горячая. Это ответ на другой вопрос -
+      // не "много ли это от прогона", а "куда смотреть первым делом в этой ветке".
+      // Доля рядом продолжает показывать жар, поэтому две колонки не сливаются в одну.
+      SelfStyle := HeatStyle;
+      IF Heaviest THEN
+        SelfStyle := 'Unfavorable';
 
       CASE "Hint Severity" OF
         "Hint Severity"::High:
