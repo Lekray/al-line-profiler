@@ -2620,6 +2620,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       ObjBoundTxt@1000000153 : TextConst 'ENU=objects %1, broken %2;RUS=объектов %1, нарушений %2';
       ChkObjKeptTxt@1000000154 : TextConst 'ENU=a loaded run keeps the object total time;RUS=загруженный замер сохраняет полное время объекта';
       ObjKeptTxt@1000000155 : TextConst 'ENU=saved %1, loaded %2;RUS=сохранено %1, загружено %2';
+      ChkDeadArrowTxt@1000000156 : TextConst 'ENU=every expansion arrow of a loaded run leads somewhere;RUS=у загруженного замера каждая стрелка раскрытия ведет куда-то';
+      DeadArrowTxt@1000000157 : TextConst 'ENU=arrows %1, leading nowhere %2;RUS=стрелок %1, ведут в никуда %2';
       RootDoorTxt@1000000140 : TextConst 'ENU=objects without a single child: %1;RUS=объектов без единого потомка: %1';
       HeadersTxt@1000000076 : TextConst 'ENU=headers %1, broken %2;RUS=заголовков %1, нарушений %2';
       ChkCmpTxt@1000000040 : TextConst 'ENU=comparison found lines on both sides;RUS=сравнение нашло строки с обеих сторон';
@@ -5232,7 +5234,39 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       GrandSelfSaved := Total;
       EdgesLive := FALSE;
       CaptureFull(TempLine);
+      DropDeadArrows(TempLine);
       TempLine.RESET;
+    END;
+
+    LOCAL PROCEDURE DropDeadArrows@217(VAR TempLine@1000000000 : TEMPORARY Record 110200);
+    VAR
+      Line@1000000001 : TEMPORARY Record 110200;
+    BEGIN
+      // Признак раскрытия ставят РЕБРА, а живут они только в приемнике: у загруженного
+      // замера целей по ним нет вовсе. Сам признак при этом сохраняется и приезжает
+      // назад как есть - и на экране остаются стрелки, за которыми ничего нет. Тот же
+      // отказ, что тут ловили дважды, только на сохраненном замере он не частный, а
+      // сплошной: обещание без исполнения хуже отсутствия обещания.
+      // Меряем тем же, чем меряет сам провал, - иначе разъедется снова.
+      // Идем по ВСЕМ строкам, а не по отобранным признаком: снятый признак вывел бы
+      // строку из отбора, и NEXT перескочил бы через соседнюю.
+      Line.COPY(TempLine,TRUE);
+      Line.RESET;
+      IF Line.FINDSET THEN
+        REPEAT
+          IF Line."Can Expand" THEN
+            IF NavTargetsOf(Line."Entry No.",Line.Line) = '' THEN BEGIN
+              Line."Can Expand" := FALSE;
+              Line.MODIFY;
+              // Вид собирается из полного листинга, поэтому гасить надо и там: иначе
+              // стрелка вернется на первом же переходе.
+              IF FullLine.GET(Line."Entry No.") THEN BEGIN
+                FullLine."Can Expand" := FALSE;
+                FullLine.MODIFY;
+              END;
+            END;
+        UNTIL Line.NEXT = 0;
+      Line.RESET;
     END;
 
     LOCAL PROCEDURE CaptureFull@77(VAR TempLine@1000000000 : TEMPORARY Record 110200);
@@ -5310,11 +5344,9 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       NavCount := Kept;
     END;
 
-    [External]
-    PROCEDURE NavInto@80(VAR TempLine@1000000000 : TEMPORARY Record 110200;LineText@1000000001 : Text[250];FromEntryNo@1000000008 : Integer;FromNode@1000000011 : Integer;VAR PositionEntryNo@1000000009 : Integer) : Boolean;
+    LOCAL PROCEDURE NavTargetsOf@216(FromEntryNo@1000000000 : Integer;LineText@1000000001 : Text[250]) Names : Text;
     VAR
-      Anchor@1000000010 : TEMPORARY Record 110200;
-      Names@1000000003 : Text;
+      Anchor@1000000002 : TEMPORARY Record 110200;
     BEGIN
       // Куда проваливаться, спрашиваем у РЕБЕР вызова: приемник знает по кадрам ETW,
       // что эта строка звала на самом деле. Отсюда виден и подписчик события, которого
@@ -5329,7 +5361,16 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // трогает - иначе точная цель с объектом открывалась бы вместе с тезкой из
       // чужого объекта. Так провал не умеет МЕНЬШЕ, чем умел до ребер.
       TextTargets(Names,LineText);
+    END;
 
+    [External]
+    PROCEDURE NavInto@80(VAR TempLine@1000000000 : TEMPORARY Record 110200;LineText@1000000001 : Text[250];FromEntryNo@1000000008 : Integer;FromNode@1000000011 : Integer;VAR PositionEntryNo@1000000009 : Integer) : Boolean;
+    VAR
+      Names@1000000003 : Text;
+    BEGIN
+      // Есть ли куда идти, решает ОДНО место - им же меряется и признак раскрытия.
+      // Разъехавшись, эти двое дают стрелку, за которой ничего нет.
+      Names := NavTargetsOf(FromEntryNo,LineText);
       IF Names = '' THEN
         EXIT(FALSE);
       IF NavCount >= MaxNavNodes THEN
@@ -5506,7 +5547,9 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
           ShortUpper := UPPERCASE(Short);
           Token := AnyObjectToken + ShortUpper;
           // Своя же функция больше не отсекается: рекурсия - законная цель провала.
-          IF (Short <> '') AND CallsName(Upper,ShortUpper) THEN
+          // Пустой издатель события целью НЕ становится: по ребрам его отсекает
+          // HasListing, а по тексту он до сих пор проходил - и щелчок открывал пустоту.
+          IF (Short <> '') AND HeaderHasBody(FullLine) AND CallsName(Upper,ShortUpper) THEN
             // Имя, которое уже дали ребра, из текста не добавляем: у ребра цель названа
             // вместе с объектом, а звездочка открыла бы заодно тезку из чужого объекта.
             // Двоеточие слева не дает "Step" совпасть с хвостом "MyStep".
@@ -5541,6 +5584,14 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
         ListFence + AnyObjectToken + UPPERCASE(ShortName(FuncName)) + ListFence) > 0);
     END;
 
+    LOCAL PROCEDURE HeaderHasBody@218(VAR Header@1000000000 : Record 110200) : Boolean;
+    BEGIN
+      // Заголовок ЕСТЬ, а строк кода под ним нет - это ЗАГЛУШКА события: тело у издателя
+      // пустое, и раскрывать по ней нечего. Правило одно на ОБА пути к цели - и по
+      // ребрам, и по тексту строки: разъехавшись, они дают щелчок в пустоту.
+      EXIT(Header."Code Lines" > 0);
+    END;
+
     LOCAL PROCEDURE HasListing@101(ObjType@1000000000 : Integer;ObjID@1000000001 : Integer;FuncName@1000000002 : Text[250]) : Boolean;
     VAR
       Probe@1000000003 : TEMPORARY Record 110200;
@@ -5560,12 +5611,11 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
         REPEAT
           IF UPPERCASE(ShortName(DELCHR(Probe.Line,'<>',' '))) = Short THEN BEGIN
             Found := TRUE;
-            // Заголовок есть, а строк кода под ним нет - это ЗАГЛУШКА события: тело у
-            // издателя пустое. По одному наличию заголовка заглушка выглядела бы
-            // обычной целью, и в ПОЛНОМ листинге (галка выполненных строк снята)
-            // провал открывал бы пустоту вместо подписчика: заголовок заглушки там
-            // на месте, а выбрасывает его только отбор выполненных.
-            HasCode := Probe."Code Lines" > 0;
+            // По одному наличию заголовка заглушка выглядела бы обычной целью, и в
+            // ПОЛНОМ листинге (галка выполненных строк снята) провал открывал бы
+            // пустоту вместо подписчика: заголовок заглушки там на месте, а
+            // выбрасывает его только отбор выполненных.
+            HasCode := HeaderHasBody(Probe);
           END;
         UNTIL Found OR (Probe.NEXT = 0);
       EXIT(HasCode);
@@ -6768,6 +6818,10 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       StayFrom@1000000019 : Integer;
       StayRet@1000000020 : Integer;
       Stayed@1000000021 : Boolean;
+      ProfRun@1000000022 : Record 110201;
+      RunNo@1000000023 : Integer;
+      Arrows@1000000024 : Integer;
+      Dead@1000000025 : Integer;
     BEGIN
       // Раскрытые места - ДЕРЕВО, а не один путь: соседний вызов обязан раскрываться,
       // не закрывая уже раскрытый, а закрытие одного не должно гасить другой.
@@ -6837,6 +6891,27 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       Check(Passed,Total,Report,ChkExpandTxt,(Flagged > 0) AND (NOT Missing),
         STRSUBSTNO(ExpandTxt,Flagged,Count) + Marked);
       NavRoot(TempLine);
+
+      // Тот же вопрос СОХРАНЕННОМУ замеру: стрелка обязана вести хоть куда-то. Признак
+      // раскрытия ставят ребра, они сохраняются вместе с ним, а вот сами ребра живут
+      // только в приемнике - и у загруженного замера целей по ним нет. Спрашиваем на
+      // ЭТОЙ нагрузке, а не на той, что сохраняет обкатка ниже: там один кодюнит с
+      // прямыми вызовами, где каждый вызов виден и в тексте строки, - опасного случая,
+      // издателя события с подписчиком в ЧУЖОМ объекте, там не бывает вовсе.
+      RunNo := SaveRun(ProfRun);
+      LoadRun(RunNo,TempLine);
+      TempLine.RESET;
+      IF TempLine.FINDSET THEN
+        REPEAT
+          IF TempLine."Can Expand" THEN BEGIN
+            Arrows := Arrows + 1;
+            IF NavTargetsOf(TempLine."Entry No.",TempLine.Line) = '' THEN
+              Dead := Dead + 1;
+          END;
+        UNTIL TempLine.NEXT = 0;
+      TempLine.RESET;
+      Check(Passed,Total,Report,ChkDeadArrowTxt,(Arrows > 0) AND (Dead = 0),
+        STRSUBSTNO(DeadArrowTxt,Arrows,Dead));
     END;
 
     LOCAL PROCEDURE CheckKeyAdvice@125(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
