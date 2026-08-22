@@ -30,6 +30,19 @@
 .PARAMETER Record
     Записать delivered.txt по текущему тексту: считать, что эти объекты загружены.
 
+.PARAMETER Only
+    Отдать ТОЛЬКО названные объекты: -Only 'Codeunit 110200,Page 110200'. Список идёт
+    ОДНОЙ строкой через запятую - запуск через pwsh -File массивов не понимает и разбил
+    бы имена по пробелу, посадив "Page 110203" на соседний ключ.
+    Нужен, когда текст объекта изменился, а смысл - нет: формат файла задаёт C/SIDE, и
+    после его перевыгрузки объект с переставленными свойствами поля выглядит изменённым
+    по хэшу, ничем не отличаясь по делу. Везти такую таблицу на объект нельзя вовсе -
+    импорт таблицы тянет за собой синхронизацию схемы рабочей базы.
+    Что осталось вне пакета, скрипт печатает поимённо: молча ужимать состав он не умеет,
+    а неизвестное имя - отказ, иначе опечатка тихо урезала бы поставку.
+    С ключом -Record работает так же: загруженными записываются только названные, у
+    остальных в базе лежит прежний текст, и врать про них ведомости нельзя.
+
 .PARAMETER Documentation
     Documentation-блок для объектов В ПАКЕТЕ. В базе, куда они уезжают, он свой - запись
     по номеру задачи трекера, - а в git у объектов стоит заголовок проекта. Номер задачи
@@ -65,6 +78,7 @@ param(
     [string] $OutDir,
     [switch] $ObjectsOnly,
     [switch] $Record,
+    [string[]] $Only,
     [string] $Documentation,
     [int]    $PartChars = 448000
 )
@@ -134,11 +148,33 @@ if ($Record) {
         '# после того, как загрузка действительно прошла: pwsh scripts/New-DeltaPackage.ps1 -Record',
         ''
     )
-    $l += ('# Источник записи: ' + $what)
+    $l += ('# Источник записи: ' + $what + $(if ($Only) { ' (только ' + ($Only -join ', ') + ')' } else { '' }))
     $l += ''
-    foreach ($k in $src.Keys) { $l += ('{0,-20} {1}' -f $k, (Get-TextHash $src[$k])) }
+    # С -Only загруженными считаются ТОЛЬКО названные: у остальных на объекте лежит
+    # прежний текст, и записать их загруженными - соврать самим себе на будущее.
+    $keep = @{}
+    if ($Only) {
+        $want = @($Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+        $unknown = @($want | Where-Object { -not $src.Contains($_) })
+        if ($unknown.Count -gt 0) { throw ('нет таких объектов: ' + ($unknown -join ', ')) }
+        if (Test-Path $ledger) {
+            foreach ($line in (Get-Content $ledger)) {
+                $t = $line.Trim()
+                if ($t -eq '' -or $t.StartsWith('#')) { continue }
+                $i = $t.LastIndexOf(' ')
+                if ($i -gt 0) { $keep[$t.Substring(0, $i).Trim()] = $t.Substring($i + 1) }
+            }
+        }
+        foreach ($k in $want) { $keep[$k] = Get-TextHash $src[$k] }
+    } else {
+        foreach ($k in $src.Keys) { $keep[$k] = Get-TextHash $src[$k] }
+    }
+    $written = 0
+    foreach ($k in $src.Keys) {
+        if ($keep.Contains($k)) { $l += ('{0,-20} {1}' -f $k, $keep[$k]); $written++ }
+    }
     [IO.File]::WriteAllLines($ledger, $l, [Text.UTF8Encoding]::new($false))
-    Write-Host ("delivered.txt записан по " + $what + ": объектов " + $src.Count) -ForegroundColor Green
+    Write-Host ("delivered.txt записан по " + $what + ": объектов " + $written) -ForegroundColor Green
     exit 0
 }
 
@@ -189,6 +225,19 @@ foreach ($k in $cur.Keys) {
     elseif ($baseHash[$k] -ne $h) { $take += $k }
 }
 $removed = @($baseHash.Keys | Where-Object { -not $cur.Contains($_) })
+
+# Ключ -Only: везём не всё, что разошлось по хэшу, а только названное.
+if ($Only) {
+    $want = @($Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+    $unknown = @($want | Where-Object { -not $cur.Contains($_) })
+    if ($unknown.Count -gt 0) { throw ('в LineProfiler.txt нет таких объектов: ' + ($unknown -join ', ')) }
+    $left = @($take | Where-Object { $want -notcontains $_ })
+    $take = @($take | Where-Object { $want -contains $_ })
+    foreach ($k in @($want | Where-Object { $take -notcontains $_ })) {
+        Write-Host ("  назван в -Only, но после последней загрузки не менялся: $k") -ForegroundColor Yellow
+    }
+    foreach ($k in $left) { Write-Host ("  оставлен вне пакета по -Only: $k") -ForegroundColor Yellow }
+}
 
 if ($take.Count -eq 0) {
     Write-Host ''
