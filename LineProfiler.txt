@@ -638,6 +638,9 @@ OBJECT Table 110204 AL Profiler Setup
     { 55  ;   ;Entry Point Only    ;Boolean       ;CaptionML=[ENU=Show Entry Point Only;
                                                               RUS=Показывать только точку входа];
                                                    Description=При провале в функцию оставлять на экране только ту точку входа, из которой ушли }
+    { 56  ;   ;Show Plain Functions;Boolean       ;CaptionML=[ENU=Show Plain Functions;
+                                                              RUS=Показывать обычные функции];
+                                                   Description=Показывать на корне функции, которые платформа не зовет сама - в них входят вызовом из своего же объекта }
   }
   KEYS
   {
@@ -693,6 +696,8 @@ OBJECT Table 110204 AL Profiler Setup
       // пользователь" и "поле появилось позже этой строки". Их и разделяет номер
       // поколения: у прежних строк он нулевой, а у новых приходит из InitValue.
       // Следующее новое поле поднимает номер, а не выдумывает себе новый признак.
+      // "Показывать обычные функции" сторожа не просит вовсе: ЛОЖЬ и есть его умолчание,
+      // и строка, заведённая до его появления, приходит уже в нужном состоянии.
       IF "Setup Version" < SetupVersionNow THEN BEGIN
         "Show Demo Run" := Fresh."Show Demo Run";
         "Setup Version" := SetupVersionNow;
@@ -2631,6 +2636,10 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       SectionTxt@1000000185 : TextConst 'ENU=headings %1, objects under them %2, heading self %3, their sum %4, out of order %5;RUS=подписей %1, объектов под ними %2, свое подписи %3, их сумма %4, не по порядку %5';
       ChkSectionKeptOutTxt@1000000186 : TextConst 'ENU=the heading row never reaches the listing;RUS=строка-подпись в листинг не попадает';
       SectionKeptOutTxt@1000000187 : TextConst 'ENU=heading rows in the listing %1;RUS=строк-подписей в листинге %1';
+      ChkPlainHiddenTxt@1000000188 : TextConst 'ENU=with plain functions off the root keeps entry points only;RUS=со снятым показом обычных функций на корне остаются одни точки входа';
+      PlainHiddenTxt@1000000189 : TextConst 'ENU=plain functions under objects with a live door %1, entry points %2;RUS=обычных функций под объектами с живой дверью %1, точек входа %2';
+      ChkPlainNetTxt@1000000190 : TextConst 'ENU=where no entry point ran the plain functions stay even when they are switched off;RUS=где не отработала ни одна точка входа, обычные функции остаются и при снятом показе';
+      PlainNetTxt@1000000191 : TextConst 'ENU=object self %1, sum under it %2, children %3;RUS=свое объекта %1, сумма под ним %2, потомков %3';
       OtherObjTxt@1000000179 : TextConst 'ENU=Other objects (%1);RUS=Остальные объекты (%1)';
       RootMissingTxt@1000000180 : TextConst 'ENU=The root object did not run in this measurement;RUS=Корневой объект в этом замере не выполнялся';
       SectionHintTxt@1000000181 : TextConst 'ENU=Self time adds up honestly. Full time is not shown here - summing it over objects would count mutual calls twice.;RUS=Свое время складывается честно, а полное здесь не показано - складывая его по объектам, взаимные вызовы посчитали бы дважды.';
@@ -2718,7 +2727,9 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       RootFuncOnly@1000000073 : Boolean;
       RootObjType@1000000177 : Integer;
       RootObjID@1000000178 : Integer;
+      ShowPlainFuncs@1000000192 : Boolean;
       DoorlessObjs@1000000138 : Text;
+      LiveDoorObjs@1000000193 : Text;
       GrandSelfSaved@1000000077 : Decimal;
       EdgeBuf@1000000078 : TEMPORARY Record 110202;
       InnerCall@1000000148 : TEMPORARY Record 110200;
@@ -2860,12 +2871,13 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
     END;
 
     [External]
-    PROCEDURE GetDefaults@53(VAR DefaultScope@1000000000 : Integer;VAR ExecutedOnly@1000000001 : Boolean;VAR SessionScope@1000000002 : Integer);
+    PROCEDURE GetDefaults@53(VAR DefaultScope@1000000000 : Integer;VAR ExecutedOnly@1000000001 : Boolean;VAR SessionScope@1000000002 : Integer;VAR PlainFuncs@1000000003 : Boolean);
     BEGIN
       Setup.FetchOnce;
       DefaultScope := Setup."Default Scope";
       ExecutedOnly := Setup."Executed Lines Only";
       SessionScope := Setup."Default Session Scope";
+      PlainFuncs := Setup."Show Plain Functions";
     END;
 
     [External]
@@ -3083,6 +3095,11 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // тот и ставит его после сборки, перед показом.
       RootObjType := 0;
       RootObjID := 0;
+      // Обычные функции на корне - тоже свойство ПОКАЗА, и сбрасывается оно сюда же, но
+      // в ПОКАЗЫВАТЬ: скрытие - выбор смотрящего, а гарантия "время объекта разложено под
+      // ним" - свойство самой сборки, и обкатка судит именно её. Кто прячет, тот и просит
+      // об этом после сборки, как и с корнем.
+      ShowPlainFuncs := TRUE;
       TempLine.RESET;
       TempLine.DELETEALL;
       CalibrateShift;
@@ -5398,6 +5415,10 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // замер открылся бы листинговым порядком, а живой - разделами.
       RootObjType := 0;
       RootObjID := 0;
+      // Та же симметрия, что и в сборке: загрузка возвращает состояние по умолчанию, а
+      // скрытие обычных функций просит смотрящий. Иначе выбор, сделанный над прошлым
+      // замером, молча достался бы этому.
+      ShowPlainFuncs := TRUE;
       IF SavedRun.GET(RunNo) THEN
         IF SavedRun.Scope = SavedRun.Scope::"All Objects" THEN BEGIN
           RootObjType := SavedRun."Object Type";
@@ -5909,9 +5930,17 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // кодюнит-одиночка: в него входят прямым вызовом метода, а его OnRun пуст, ничего
       // не выполняет и точкой входа в замере не становится.
       //
+      // Заодно считаем двери ЖИВЫЕ - те, что в этот раз отработали. Наличия мало: дверь
+      // бывает и пустой (событие никто не поднимал), а работала при этом обычная
+      // процедура. Спрятав такую процедуру, мы оставили бы объект с миллисекундами и
+      // нулями под ними - тот самый отказ, из-за которого правило и появилось. Поэтому
+      // скрытие обычных функций отступает у объекта, где не отработала НИ ОДНА дверь:
+      // одно условие закрывает оба случая сразу - и дверей нет вовсе, и двери пустые.
+      //
       // Поэтому объекты без двери считаем ОДИН раз на сборку вида, а не из VisibleAt:
       // та зовется на каждую строку листинга, и скан внутри нее дал бы квадрат.
       DoorlessObjs := '';
+      LiveDoorObjs := '';
       Cur.COPY(FullLine,TRUE);
 
       Cur.RESET;
@@ -5924,6 +5953,9 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
             Mark := ListFence + FORMAT(ObjType) + TokenSep + FORMAT(Cur."Object ID") + ListFence;
             IF STRPOS(WithDoor,Mark) = 0 THEN
               WithDoor := WithDoor + Mark;
+            IF Ran(Cur) THEN
+              IF STRPOS(LiveDoorObjs,Mark) = 0 THEN
+                LiveDoorObjs := LiveDoorObjs + Mark;
           END;
         UNTIL Cur.NEXT = 0;
 
@@ -5943,6 +5975,15 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       IF DoorlessObjs = '' THEN
         EXIT(FALSE);
       EXIT(STRPOS(DoorlessObjs,ListFence + FORMAT(ObjType) + TokenSep + FORMAT(ObjID) + ListFence) > 0);
+    END;
+
+    LOCAL PROCEDURE LiveDoor@232(ObjType@1000000000 : Integer;ObjID@1000000001 : Integer) : Boolean;
+    BEGIN
+      // Есть ли у объекта хоть одна ОТРАБОТАВШАЯ точка входа. Пустой список значит "ни у
+      // кого": так бывает у замера, собранного целиком из прямых вызовов.
+      IF LiveDoorObjs = '' THEN
+        EXIT(FALSE);
+      EXIT(STRPOS(LiveDoorObjs,ListFence + FORMAT(ObjType) + TokenSep + FORMAT(ObjID) + ListFence) > 0);
     END;
 
     LOCAL PROCEDURE Ran@166(VAR Line@1000000000 : Record 110200) : Boolean;
@@ -6002,6 +6043,18 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // сборка его сбрасывает, потому что не знает, для показа она или для обкатки.
       RootObjType := ObjType;
       RootObjID := ObjID;
+    END;
+
+    [External]
+    PROCEDURE SetShowPlainFuncs@231(Show@1000000000 : Boolean);
+    BEGIN
+      // Обычная функция - не дверь: платформа её не зовёт, в неё входят вызовом из своего
+      // же объекта. На корне она стоит потому, что иначе её время негде увидеть - оно уже
+      // сложено в строку объекта. Но рядом с дверьми она читается как вторая дверь, а её
+      // время вдобавок сидит ВНУТРИ полного времени той двери, из которой её позвали, -
+      // колонка "полное" на корне из-за этого не складывается. Кому нужны только двери,
+      // тот её убирает, а до самой функции доходит провалом со строки вызова.
+      ShowPlainFuncs := Show;
     END;
 
     LOCAL PROCEDURE EmitRoot@228(VAR TempLine@1000000000 : TEMPORARY Record 110200;VAR Seq@1000000001 : Integer);
@@ -6289,11 +6342,20 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
           // миллисекунды, под ним две пустые точки входа, а куда ушло время - не сказано
           // вовсе. Точкой входа такая функция не считается и считаться не должна: в нее
           // вошли прямым вызовом, платформа о ней не знает ничего.
-          IF NOT Ran(Line) THEN
+          IF NOT Ran(Line) THEN BEGIN
             // Объект, в замер которого не попало НИ ОДНОЙ точки входа, открываем и без
             // выполнений: иначе его строка - глухой тупик, и до листинга не добраться.
             IF NOT Doorless(Line."Object Type",Line."Object ID") THEN
               EXIT(FALSE);
+          END ELSE
+            // Отработавшую обычную функцию по настройке с корня убираем: рядом с дверьми
+            // она читается как вторая дверь, а её время вдобавок уже сидит внутри полного
+            // времени той двери, из которой её позвали. Отступаем там, где у объекта не
+            // отработала ни одна дверь: иначе под ним остались бы одни нули, а то и вовсе
+            // ничего. Дойти до самой функции это не мешает - провал со строки вызова цел.
+            IF NOT ShowPlainFuncs THEN
+              IF LiveDoor(Line."Object Type",Line."Object ID") THEN
+                EXIT(FALSE);
         END;
         // По настройке на экране остается либо весь список точек входа, либо только те,
         // из которых ушли вглубь.
@@ -7070,6 +7132,84 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
         STRSUBSTNO(SectionKeptOutTxt,InListing));
     END;
 
+    LOCAL PROCEDURE CheckPlainFuncs@233(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
+    VAR
+      TempLine@1000000003 : TEMPORARY Record 110200;
+      Cur@1000000004 : TEMPORARY Record 110200;
+      Demo@1000000005 : Codeunit 110201;
+      Acc@1000000006 : Decimal;
+      Index@1000000007 : Integer;
+      Plain@1000000008 : Integer;
+      Doors@1000000009 : Integer;
+      Live@1000000010 : Boolean;
+      Seen@1000000011 : Boolean;
+      ObjSelf@1000000012 : Decimal;
+      SumSelf@1000000013 : Decimal;
+      Kids@1000000014 : Integer;
+    BEGIN
+      // Настройка убирает с корня функции, которые платформа не зовет сама. Демонстрация
+      // для этого и годится: у отчета двери отработали все до одной, поэтому обычные его
+      // функции обязаны уйти целиком, а точки входа - остаться.
+      RunDemo(200,TempLine);
+      SetShowPlainFuncs(FALSE);
+      NavRoot(TempLine);
+
+      Cur.COPY(TempLine,TRUE);
+      Cur.RESET;
+      IF Cur.FINDSET THEN
+        REPEAT
+          CASE Cur."Line Type" OF
+            Cur."Line Type"::Object:
+              Live := LiveDoor(Cur."Object Type",Cur."Object ID");
+            Cur."Line Type"::"Trigger/Function":
+              IF Live THEN
+                IF IsEntryPoint(RowFunc(Cur)) THEN
+                  Doors := Doors + 1
+                ELSE
+                  Plain := Plain + 1;
+          END;
+        UNTIL Cur.NEXT = 0;
+      Cur.RESET;
+
+      Check(Passed,Total,Report,ChkPlainHiddenTxt,(Plain = 0) AND (Doors > 0),
+        STRSUBSTNO(PlainHiddenTxt,Plain,Doors));
+
+      // Страховка: у объекта, где не отработала НИ ОДНА дверь, обычные функции остаются и
+      // при снятом показе - иначе под ним висели бы одни нули, а его миллисекунды не были
+      // бы показаны нигде. Случай тот же, что у проверки видимой работы: двери есть,
+      // подписчики событий, но в этот раз их никто не поднимал.
+      StartTrace(0,0,0,0);
+      FOR Index := 1 TO 50 DO
+        Demo.RunPlainWork(Index,Acc);
+      StopTrace;
+      BuildResult(TempLine,0,0,FALSE);
+      SetShowPlainFuncs(FALSE);
+      NavRoot(TempLine);
+
+      Cur.COPY(TempLine,TRUE);
+      Cur.RESET;
+      IF Cur.FINDSET THEN
+        REPEAT
+          IF Cur."Line Type" = Cur."Line Type"::Object THEN BEGIN
+            Seen := (Cur."Object Type" = Cur."Object Type"::CodeUnit) AND (Cur."Object ID" = 110201);
+            IF Seen THEN
+              ObjSelf := Cur."Self ms";
+          END ELSE
+            IF Seen THEN BEGIN
+              SumSelf := SumSelf + Cur."Self ms";
+              Kids := Kids + 1;
+            END;
+        UNTIL Cur.NEXT = 0;
+      Cur.RESET;
+      // Возвращаем показ: следующая проверка о нашем выборе не знает, а сборка сбрасывает
+      // его сама только там, где она есть.
+      SetShowPlainFuncs(TRUE);
+
+      Check(Passed,Total,Report,ChkPlainNetTxt,
+        (Kids > 0) AND (ABS(ObjSelf - SumSelf) <= RollupTolerantMs),
+        STRSUBSTNO(PlainNetTxt,ObjSelf,SumSelf,Kids));
+    END;
+
     LOCAL PROCEDURE CheckRecursionTotal@225(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
     VAR
       TempLine@1000000003 : TEMPORARY Record 110200;
@@ -7837,6 +7977,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       CheckBodyNav(Passed,Total,Report);
       CheckRecursionTotal(Passed,Total,Report);
       CheckRootSection(Passed,Total,Report);
+      CheckPlainFuncs(Passed,Total,Report);
       CheckTreeNav(Passed,Total,Report);
       CheckKeyAdvice(Passed,Total,Report);
       // ПОСЛЕ всех, кому нужны ребра: она заканчивается загрузкой сохраненного замера,
@@ -8586,7 +8727,7 @@ OBJECT Page 110200 AL Line Profiler
              DefaultScope@1000000000 : Integer;
              DefaultSessionScope@1000000001 : Integer;
            BEGIN
-             ProfilerMgt.GetDefaults(DefaultScope,OnlyExecuted,DefaultSessionScope);
+             ProfilerMgt.GetDefaults(DefaultScope,OnlyExecuted,DefaultSessionScope,ShowPlainFuncs);
              MeasureScope := DefaultScope;
              SessionScope := DefaultSessionScope;
              TargetObjectType := TargetObjectType::CodeUnit;
@@ -8604,7 +8745,7 @@ OBJECT Page 110200 AL Line Profiler
                  // на форме пустели разом область замера, область по сессиям и галка
                  // выполненных строк, хотя в переменных лежали верные значения.
                  // Что стоит помнить между открытиями - задается в настройке профайлера.
-                 ProfilerMgt.GetDefaults(DefaultScope,DefaultExecutedOnly,DefaultSessionScope);
+                 ProfilerMgt.GetDefaults(DefaultScope,DefaultExecutedOnly,DefaultSessionScope,ShowPlainFuncs);
                  // Видимость действия снимается при открытии страницы: в настройку по
                  // ходу работы не ходят, а держать лишний вызов на каждой перерисовке
                  // незачем.
@@ -8781,6 +8922,9 @@ OBJECT Page 110200 AL Line Profiler
                                  IF PAGE.RUNMODAL(PAGE::"AL Profiler Runs",ProfRun) <> ACTION::LookupOK THEN
                                    EXIT;
                                  TotalSelfMs := ProfilerMgt.LoadRun(ProfRun."Entry No.",Rec);
+                                 // Загрузка тоже возвращает отбор верхнего уровня к
+                                 // умолчанию - выбор смотрящего накладываем поверх.
+                                 ProfilerMgt.SetShowPlainFuncs(ShowPlainFuncs);
                                  ResetNav;
                                  LoadedRunNo := ProfRun."Entry No.";
                                  LoadedRunDesc := ProfRun.Description;
@@ -8872,6 +9016,7 @@ OBJECT Page 110200 AL Line Profiler
                                  // Корень ставится ПОСЛЕ сборки: сборка его сбрасывает,
                                  // потому что не знает, для показа она или для обкатки.
                                  ProfilerMgt.SetRootObject(TargetObjectType,RootObjectID);
+                                 ProfilerMgt.SetShowPlainFuncs(ShowPlainFuncs);
                                  MeasuredLines := CountMeasured;
                                  AfterBuild;
                                END;
@@ -9013,6 +9158,22 @@ OBJECT Page 110200 AL Line Profiler
                 OnValidate=BEGIN
                              IF NOT TraceIsRunning THEN
                                LoadResult;
+                           END;
+                            }
+
+    { 17  ;2   ;Field     ;
+                Name=ShowPlainFuncs;
+                CaptionML=[ENU=Show Plain Functions;
+                           RUS=Показывать обычные функции];
+                ToolTipML=[ENU=Specifies whether the top level also shows the functions the platform never calls itself - the ones entered by a call from their own object. Cleared, only entry points stay, and a plain function is reached by drilling in from its call line. An object where no entry point ran keeps its functions either way, otherwise there would be nothing under it.;
+                           RUS=Определяет, показывать ли на верхнем уровне и те функции, которые платформа не зовёт сама - в них входят вызовом из своего же объекта. Если снят, остаются одни точки входа, а до обычной функции доходят провалом со строки вызова. У объекта, где не отработала ни одна точка входа, функции показываются в любом случае - иначе под ним не осталось бы ничего.];
+                ApplicationArea=#All;
+                SourceExpr=ShowPlainFuncs;
+                OnValidate=BEGIN
+                             // Отбор верхнего уровня, а не состав замера: пересобирать
+                             // нечего, вид собирается заново из тех же буферов.
+                             ProfilerMgt.SetShowPlainFuncs(ShowPlainFuncs);
+                             RefreshView;
                            END;
                             }
 
@@ -9437,6 +9598,7 @@ OBJECT Page 110200 AL Line Profiler
       TargetSessionID@1000000032 : Integer;
       TargetSessionUser@1000000033 : Text[132];
       OnlyExecuted@1000000004 : Boolean;
+      ShowPlainFuncs@1000000103 : Boolean;
       TraceIsRunning@1000000005 : Boolean;
       MeasureScope@1000000019 : 'All Objects,Single Object';
       TotalsVisible@1000000040 : Boolean;
@@ -9581,17 +9743,26 @@ OBJECT Page 110200 AL Line Profiler
       // результат незачем: вид собирается заново из тех же буферов. Пересборка тут была бы
       // и вредна - она берет данные приемника, и загруженный замер снесло бы с экрана.
       // В режиме одного объекта корня нет вовсе, и вид не трогаем: объект там один.
-      IF MeasureScope = MeasureScope::"All Objects" THEN BEGIN
-        ProfilerMgt.SetRootObject(TargetObjectType,RootObjectID);
-        ResetNav;
-        // Вид с пустыми буферами выходит пустым, а на списочной странице пустой список
-        // гасит шапку целиком - строку-подсказку возвращаем на место.
-        ShowHintRow;
-        RESET;
-        SETCURRENTKEY("Entry No.");
-        ASCENDING(TRUE);
-        IF FINDFIRST THEN;
+      IF MeasureScope <> MeasureScope::"All Objects" THEN BEGIN
+        CurrPage.UPDATE(FALSE);
+        EXIT;
       END;
+      ProfilerMgt.SetRootObject(TargetObjectType,RootObjectID);
+      RefreshView;
+    END;
+
+    LOCAL PROCEDURE RefreshView@20();
+    BEGIN
+      // Пересобирается ВИД, а не результат: буферы те же, приемник и база не трогаются -
+      // поэтому это переживает и загруженный замер, которому пересборка стоила бы жизни.
+      ResetNav;
+      // Вид с пустыми буферами выходит пустым, а на списочной странице пустой список
+      // гасит шапку целиком - строку-подсказку возвращаем на место.
+      ShowHintRow;
+      RESET;
+      SETCURRENTKEY("Entry No.");
+      ASCENDING(TRUE);
+      IF FINDFIRST THEN;
       CurrPage.UPDATE(FALSE);
     END;
 
@@ -9605,6 +9776,7 @@ OBJECT Page 110200 AL Line Profiler
       // Корень ставится ПОСЛЕ сборки: сборка его сбрасывает, потому что не знает, для
       // показа она или для обкатки. В режиме одного объекта корня нет - объект там один.
       ProfilerMgt.SetRootObject(TargetObjectType,RootObjectID);
+      ProfilerMgt.SetShowPlainFuncs(ShowPlainFuncs);
       ResetNav;
       MeasuredLines := CountMeasured;
       AfterBuild;
@@ -10647,6 +10819,15 @@ OBJECT Page 110203 AL Profiler Setup
                            RUS=Определяет, оставлять ли при провале в функцию только ту точку входа, из которой ушли. Если снят, на экране остается весь список точек входа, а вызванная функция вкладывается под своей строкой вызова.];
                 ApplicationArea=#All;
                 SourceExpr="Entry Point Only" }
+
+    { 2961;2   ;Field     ;
+                Name=ShowPlainFunctions;
+                CaptionML=[ENU=Show Plain Functions;
+                           RUS=Показывать обычные функции];
+                ToolTipML=[ENU=Specifies what the profiler page offers when it opens - whether the top level also shows the functions the platform never calls itself. Cleared, only entry points stay, and a plain function is reached by drilling in from its call line. An object where no entry point ran keeps its functions either way.;
+                           RUS=Определяет, что страница профайлера предлагает при открытии - показывать ли на верхнем уровне и те функции, которые платформа не зовёт сама. Если снят, остаются одни точки входа, а до обычной функции доходят провалом со строки вызова. У объекта, где не отработала ни одна точка входа, функции показываются в любом случае.];
+                ApplicationArea=#All;
+                SourceExpr="Show Plain Functions" }
 
     { 5   ;2   ;Field     ;
                 Name=ExecutedLinesOnly;
