@@ -8564,7 +8564,7 @@ OBJECT Page 110200 AL Line Profiler
 {
   OBJECT-PROPERTIES
   {
-    Date=22.08.26;
+    Date=25.08.26;
     Time=12:00:00;
     Modified=Yes;
     Version List=ALProfiler;
@@ -8784,6 +8784,19 @@ OBJECT Page 110200 AL Line Profiler
                                  ResetNav;
                                  LoadedRunNo := ProfRun."Entry No.";
                                  LoadedRunDesc := ProfRun.Description;
+                                 // Поля прогона обязаны описывать ТО, ЧТО НА ЭКРАНЕ. Корень
+                                 // загруженного замера ставит сам кодюнит, а в шапке до сих
+                                 // пор оставалось прежнее - и объект в начале дерева не
+                                 // сходился с полем рядом. Ширина опций у замера и у страницы
+                                 // одна, сверено по объявлениям, - присваивание законно.
+                                 MeasureScope := ProfRun.Scope;
+                                 TargetObjectType := ProfRun."Object Type";
+                                 TargetObjectID := ProfRun."Object ID";
+                                 TargetObjectName := ObjectNameOf(TargetObjectType,TargetObjectID);
+                                 SessionScope := ProfRun."Session Scope";
+                                 TargetSessionID := ProfRun."Session ID";
+                                 TargetSessionUser := SessionUserOf(TargetSessionID);
+                                 RefreshVisibility;
                                  // Показан чужой замер, а не только что снятый: единственная
                                  // отметка об этом - описание в итогах, поэтому раскрываем их.
                                  TotalsVisible := TRUE;
@@ -8848,13 +8861,17 @@ OBJECT Page 110200 AL Line Profiler
                                  // Демонстрация меряет ВСЕ объекты: подписчик восьмого
                                  // шага лежит в отдельном кодюните, и при отборе по
                                  // отчету его не было бы видно. Поля прогона показывают
-                                 // то, что произошло на самом деле.
+                                 // то, что произошло на самом деле: меряли всё, а смотрят
+                                 // с демонстрационного отчета - он и стоит корнем дерева.
                                  MeasureScope := MeasureScope::"All Objects";
                                  TargetObjectType := TargetObjectType::Report;
-                                 TargetObjectID := 0;
-                                 TargetObjectName := '';
+                                 TargetObjectID := REPORT::"AL Profiler Demo Report";
+                                 TargetObjectName := ObjectNameOf(TargetObjectType,TargetObjectID);
                                  RefreshVisibility;
                                  TotalSelfMs := ProfilerMgt.RunDemo(0,Rec);
+                                 // Корень ставится ПОСЛЕ сборки: сборка его сбрасывает,
+                                 // потому что не знает, для показа она или для обкатки.
+                                 ProfilerMgt.SetRootObject(TargetObjectType,RootObjectID);
                                  MeasuredLines := CountMeasured;
                                  AfterBuild;
                                END;
@@ -8899,6 +8916,22 @@ OBJECT Page 110200 AL Line Profiler
                                  ASCENDING(TRUE);
                                  IF FINDFIRST THEN;
                                  CurrPage.UPDATE(FALSE);
+                               END;
+                                }
+      { 57      ;1   ;Action    ;
+                      Name=SetRootHere;
+                      CaptionML=[ENU=Root Here;
+                                 RUS=Сделать корнем];
+                      ToolTipML=[ENU=Put the object of the current line at the top of the tree and push the rest under their own heading. Works when all objects are measured.;
+                                 RUS=Поставить объект текущей строки в начало дерева, а остальные увести под свою подпись. Работает при замере всех объектов.];
+                      ApplicationArea=#All;
+                      Promoted=Yes;
+                      Enabled=NOT TraceIsRunning;
+                      PromotedIsBig=Yes;
+                      Image=Hierarchy;
+                      PromotedCategory=Category6;
+                      OnAction=BEGIN
+                                 SetRootHere;
                                END;
                                 }
       { 56      ;1   ;Action    ;
@@ -8996,19 +9029,25 @@ OBJECT Page 110200 AL Line Profiler
                                  RUS=Данные таблицы,Таблица,,Отчет,,Кодовый модуль,XMLport,Меню,Страница,Запрос];
                 ApplicationArea=#All;
                 SourceExpr=TargetObjectType;
-                Enabled=NOT TraceIsRunning }
+                Enabled=NOT TraceIsRunning;
+                OnValidate=BEGIN
+                             TargetObjectName := ObjectNameOf(TargetObjectType,TargetObjectID);
+                             ApplyRoot;
+                           END;
+                            }
 
     { 4   ;3   ;Field     ;
                 Name=TargetObjectID;
                 CaptionML=[ENU=Object ID;
                            RUS=Код объекта];
-                ToolTipML=[ENU=Specifies the object to measure. When all objects are measured it is optional and only sets the root of the tree - that object goes first and the rest fall under their own heading. Press the lookup to pick it by name.;
-                           RUS=Определяет измеряемый объект. При замере всех объектов он не обязателен и лишь задаёт корень дерева - его строки идут первыми, а остальные объекты уходят под свою подпись. По кнопке выбора объект ищется по имени.];
+                ToolTipML=[ENU=Specifies the object to measure. When all objects are measured it is optional and only sets the root of the tree - that object goes first and the rest fall under their own heading. A code typed here counts once the entry is finished, so it is safer to pick the object with the lookup or to press Root Here on a line of the result.;
+                           RUS=Определяет измеряемый объект. При замере всех объектов он не обязателен и лишь задаёт корень дерева - его строки идут первыми, а остальные объекты уходят под свою подпись. Набранный код принимается по окончании ввода, поэтому надёжнее выбрать объект кнопкой или нажать Сделать корнем на строке результата.];
                 ApplicationArea=#All;
                 SourceExpr=TargetObjectID;
                 Enabled=NOT TraceIsRunning;
                 OnValidate=BEGIN
                              TargetObjectName := ObjectNameOf(TargetObjectType,TargetObjectID);
+                             ApplyRoot;
                            END;
 
                 OnLookup=VAR
@@ -9023,7 +9062,7 @@ OBJECT Page 110200 AL Line Profiler
                            IF PAGE.RUNMODAL(PAGE::"Code Coverage Object",Obj) = ACTION::LookupOK THEN BEGIN
                              TargetObjectID := Obj.ID;
                              TargetObjectName := Obj.Name;
-                             CurrPage.UPDATE;
+                             ApplyRoot;
                            END;
                          END;
                           }
@@ -9425,6 +9464,8 @@ OBJECT Page 110200 AL Line Profiler
       ReceiverErrMsg@1000000016 : TextConst 'ENU=The ETW receiver reported an error: %1;RUS=Приемник ETW сообщил об ошибке: %1';
       SavedMsg@1000000024 : TextConst 'ENU=Saved as run %1.;RUS=Сохранено как замер %1.';
       NoRunHintTxt@1000000039 : TextConst 'ENU=No measurement yet. Press Start, run your scenario and press Stop - or press Demo Run.;RUS=Замера еще не было. Нажмите Старт, отработайте сценарий и нажмите Стоп - или нажмите Демонстрационный замер.';
+      RootScopeMsg@1000000101 : TextConst 'ENU=The root of the tree makes sense only when all objects are measured. With a single object there is nothing to put first.;RUS=Корень дерева имеет смысл только при замере всех объектов. При замере одного объекта ставить первым нечего.';
+      RootNoObjectMsg@1000000102 : TextConst 'ENU=This line carries no object. Stand on an object, on one of its functions or on a line of its code.;RUS=У этой строки нет объекта. Встаньте на объект, на его функцию или на строку его кода.';
 
     LOCAL PROCEDURE ResetNav@11();
     BEGIN
@@ -9511,6 +9552,47 @@ OBJECT Page 110200 AL Line Profiler
       IF MeasureScope <> MeasureScope::"All Objects" THEN
         EXIT(0);
       EXIT(TargetObjectID);
+    END;
+
+    LOCAL PROCEDURE SetRootHere@18();
+    BEGIN
+      // Корень набирают кодом объекта в шапке, но НАБРАННОЕ доезжает до сервера только по
+      // окончании ввода: щелчок по строке списка ввод не заканчивает, и набранные цифры
+      // пропадают молча - поле снова пустое, а почему, не сказано нигде. Здесь того же
+      // просят с готовой строки: действие доезжает всегда, и набирать ничего не нужно.
+      IF MeasureScope <> MeasureScope::"All Objects" THEN BEGIN
+        MESSAGE(RootScopeMsg);
+        EXIT;
+      END;
+      // Подпись раздела и строка-подсказка объекта не несут: INIT оставляет в поле ноль.
+      IF "Object ID" = 0 THEN BEGIN
+        MESSAGE(RootNoObjectMsg);
+        EXIT;
+      END;
+      TargetObjectType := "Object Type";
+      TargetObjectID := "Object ID";
+      TargetObjectName := ObjectNameOf(TargetObjectType,TargetObjectID);
+      ApplyRoot;
+    END;
+
+    LOCAL PROCEDURE ApplyRoot@19();
+    BEGIN
+      // Корень меняет только ПОРЯДОК показа, а не состав замера, поэтому пересобирать
+      // результат незачем: вид собирается заново из тех же буферов. Пересборка тут была бы
+      // и вредна - она берет данные приемника, и загруженный замер снесло бы с экрана.
+      // В режиме одного объекта корня нет вовсе, и вид не трогаем: объект там один.
+      IF MeasureScope = MeasureScope::"All Objects" THEN BEGIN
+        ProfilerMgt.SetRootObject(TargetObjectType,RootObjectID);
+        ResetNav;
+        // Вид с пустыми буферами выходит пустым, а на списочной странице пустой список
+        // гасит шапку целиком - строку-подсказку возвращаем на место.
+        ShowHintRow;
+        RESET;
+        SETCURRENTKEY("Entry No.");
+        ASCENDING(TRUE);
+        IF FINDFIRST THEN;
+      END;
+      CurrPage.UPDATE(FALSE);
     END;
 
     LOCAL PROCEDURE LoadResult@1();
