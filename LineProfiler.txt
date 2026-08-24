@@ -2675,6 +2675,12 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       HeaviestTxt@1000000165 : TextConst 'ENU=marks %1, branches out of order %2;RUS=отметок %1, деревьев не в порядке %2';
       ChkLoadedMarkTxt@1000000166 : TextConst 'ENU=a loaded run marks its heaviest lines too;RUS=загруженный замер тоже размечает свои тяжелые строки';
       LoadedMarkTxt@1000000167 : TextConst 'ENU=marks after loading %1;RUS=отметок после загрузки %1';
+      ChkLoadedListTxt@1000000168 : TextConst 'ENU=a loaded run comes back as a listing, without edge rows;RUS=загруженный замер приходит листингом, без строк-ребер';
+      LoadedListTxt@1000000169 : TextConst 'ENU=loaded lines %1, edge rows among them %2;RUS=загружено строк %1, из них строк-ребер %2';
+      ChkLoadedBodyTxt@1000000172 : TextConst 'ENU=an opened body of a loaded run shows only its own lines;RUS=раскрытое тело загруженного замера показывает только свои строки';
+      LoadedBodyTxt@1000000173 : TextConst 'ENU=rows under the body %1, rows of a foreign type %2;RUS=строк под телом %1, строк чужого типа %2';
+      ChkResaveTxt@1000000170 : TextConst 'ENU=saving a loaded run copies its edges once and whole;RUS=сохранение загруженного замера везет его ребра один раз и целиком';
+      ResaveTxt@1000000171 : TextConst 'ENU=edges saved %1, saved again %2, without a callee %3;RUS=ребер сохранено %1, сохранено повторно %2, без вызванной стороны %3';
       LoadedHintTxt@1000000163 : TextConst 'ENU=lines with call numbers %1, worst total ms %2;RUS=строк с числами вызова %1, наибольшее полное время %2';
       RootDoorTxt@1000000140 : TextConst 'ENU=objects without a single child: %1;RUS=объектов без единого потомка: %1';
       HeadersTxt@1000000076 : TextConst 'ENU=headers %1, broken %2;RUS=заголовков %1, нарушений %2';
@@ -5313,6 +5319,15 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       TempLine.DELETEALL;
       RunLine.RESET;
       RunLine.SETRANGE("Run No.",RunNo);
+      // DD 22.08.2026 LineProfiler >>
+      // Сюда идет ЛИСТИНГ, а ребра забирает LoadEdges в свой буфер: лежат они в тех же
+      // сохраненных строках своим типом. Попав в листинг, ребро встает строкой БЕЗ
+      // текста - время есть, кода нет - и всплывает под своей вызывающей функцией, стоит
+      // раскрыть ее тело: отбор видимости берет у строки имя функции, а у ребра в этом
+      // поле стоит вызывающая сторона. У живого замера такого нет вовсе - там ребра из
+      // листинга и не выходят, - поэтому отказ был виден только на загруженном.
+      RunLine.SETFILTER("Line Type",'<>%1',RunLine."Line Type"::Edge);
+      // DD 22.08.2026 LineProfiler <<
       IF NOT RunLine.FINDSET THEN
         EXIT;
       REPEAT
@@ -6968,6 +6983,24 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       EXIT(110201);
     END;
 
+    LOCAL PROCEDURE RunEdges@224(RunNo@1000000000 : Integer;VAR Nameless@1000000001 : Integer) : Integer;
+    VAR
+      RunLine@1000000002 : Record 110202;
+    BEGIN
+      // Ребра сохраненного замера: сколько их и сколько среди них безымянных. Имя
+      // вызванной функции - единственное, чем ребро годится в цель провала, и ребро без
+      // него в базу попасть не может иначе как ошибкой.
+      RunLine.RESET;
+      RunLine.SETRANGE("Run No.",RunNo);
+      RunLine.SETRANGE("Line Type",RunLine."Line Type"::Edge);
+      IF RunLine.FINDSET THEN
+        REPEAT
+          IF DELCHR(RunLine."Callee Function",'<>',' ') = '' THEN
+            Nameless := Nameless + 1;
+        UNTIL RunLine.NEXT = 0;
+      EXIT(RunLine.COUNT);
+    END;
+
     LOCAL PROCEDURE CheckObjectTotal@174(RunNo@1000000016 : Integer;VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
     VAR
       TempLine@1000000003 : TEMPORARY Record 110200;
@@ -7103,6 +7136,18 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       Marks@1000000030 : Integer;
       BadMark@1000000031 : Integer;
       LoadedMarks@1000000032 : Integer;
+      ListRows@1000000033 : Integer;
+      EdgeRows@1000000034 : Integer;
+      EdgesFirst@1000000035 : Integer;
+      EdgesAgain@1000000036 : Integer;
+      Nameless@1000000037 : Integer;
+      AgainNo@1000000038 : Integer;
+      Edge@1000000039 : TEMPORARY Record 110202;
+      Head@1000000040 : TEMPORARY Record 110200;
+      BodyEntry@1000000041 : Integer;
+      BodyRows@1000000042 : Integer;
+      ViewEdges@1000000043 : Integer;
+      BodyOpen@1000000044 : Boolean;
     BEGIN
       // Раскрытые места - ДЕРЕВО, а не один путь: соседний вызов обязан раскрываться,
       // не закрывая уже раскрытый, а закрытие одного не должно гасить другой.
@@ -7211,6 +7256,25 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // издателя события с подписчиком в ЧУЖОМ объекте, там не бывает вовсе.
       RunNo := SaveRun(ProfRun);
       LoadRun(RunNo,TempLine);
+
+      // Ребра уезжают в базу теми же строками, что и листинг, и обратно в листинг
+      // попадать не должны. У ребра нет текста кода, зато есть время и имя ВЫЗЫВАЮЩЕЙ
+      // функции - а отбор видимости берет у строки именно его: ребро всплывает под своей
+      // функцией, стоит раскрыть ее тело, и на экране это строка со временем, но без
+      // кода. У живого замера такого не бывает вовсе - ребра живут в своем буфере, - и
+      // спросить об этом можно только загруженный.
+      // Спрашиваем ЗА последним известным типом, а не про Edge по имени: у таблицы
+      // листинга такого типа нет вовсе, он заведен только у сохраненных строк. Ребро,
+      // попавшее сюда присваиванием, и приезжает значением за концом списка - тем самым
+      // отбор ловит заодно любой другой тип, который сюда однажды принесет.
+      TempLine.RESET;
+      ListRows := TempLine.COUNT;
+      TempLine.SETFILTER("Line Type",'>%1',TempLine."Line Type"::Code);
+      EdgeRows := TempLine.COUNT;
+      TempLine.RESET;
+      Check(Passed,Total,Report,ChkLoadedListTxt,(ListRows > 0) AND (EdgeRows = 0),
+        STRSUBSTNO(LoadedListTxt,ListRows,EdgeRows));
+
       TempLine.RESET;
       IF TempLine.FINDSET THEN
         REPEAT
@@ -7232,6 +7296,22 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
         STRSUBSTNO(LoadedEdgesTxt,EdgeBuf.COUNT));
       CheckLoadedEdges(TempLine,Passed,Total,Report);
 
+      // Замер сохраняют и ПОВЕРХ загруженного - кнопка на странице одна на оба случая.
+      // Пока ребра текли в листинг, второй круг вез их дважды: раз строками листинга,
+      // раз буфером, - и та половина, что шла листингом, приезжала калекой: полей
+      // вызванной стороны в таблице листинга нет вовсе, и в базу уходило ребро с пустым
+      // именем вызванной функции. Такое ребро ни целью не станет, ни трамплином, зато
+      // место в списке целей занимает - и каждый круг удваивает их число. Требуем от
+      // повторного круга ровно тот же счет и ни одного безымянного.
+      Nameless := 0;
+      EdgesFirst := RunEdges(RunNo,Nameless);
+      AgainNo := SaveRun(ProfRun);
+      EdgesAgain := RunEdges(AgainNo,Nameless);
+      DeleteRun(AgainNo);
+      Check(Passed,Total,Report,ChkResaveTxt,
+        (EdgesFirst > 0) AND (EdgesAgain = EdgesFirst) AND (Nameless = 0),
+        STRSUBSTNO(ResaveTxt,EdgesFirst,EdgesAgain,Nameless));
+
       // Отметку самой тяжелой строки ставит СБОРКА вида, а загрузка замера вид не
       // собирает - его собирает страница следом, своим ResetNav. Здесь тот же путь, и
       // отметки обязаны появиться снова: иначе у загруженного замера они держались бы
@@ -7243,6 +7323,48 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       TempLine.RESET;
       Check(Passed,Total,Report,ChkLoadedMarkTxt,LoadedMarks > 0,
         STRSUBSTNO(LoadedMarkTxt,LoadedMarks));
+
+      // Тот же вопрос ЭКРАНУ, а не загруженным строкам: строку без кода видно не в
+      // листинге, а в РАСКРЫТОМ ТЕЛЕ. Заголовок берем не любой, а тот, у которого ребра
+      // ЕСТЬ: под функцией, никого не зовущей, протечке взяться неоткуда, и случай
+      // прошел бы на сломанном коде. Улика - ТИП строки, а не пустой текст: за строкой
+      // кода платформа шлет каркасные строки, текста у них нет тоже. Свои курсоры на
+      // обход обязательны - раскрытие пересобирает вид, по которому идет отбор.
+      Edge.COPY(EdgeBuf,TRUE);
+      Head.COPY(TempLine,TRUE);
+      Head.RESET;
+      Head.SETRANGE("Line Type",Head."Line Type"::"Trigger/Function");
+      IF Head.FINDSET THEN
+        REPEAT
+          IF (BodyEntry = 0) AND HeaderHasBody(Head) AND (NOT IsEntryPoint(RowFunc(Head))) THEN BEGIN
+            Edge.RESET;
+            Edge.SETRANGE("Object Type",Head."Object Type");
+            Edge.SETRANGE("Object ID",Head."Object ID");
+            IF Edge.FINDSET THEN
+              REPEAT
+                IF UPPERCASE(ShortName(Edge."Function Name")) = UPPERCASE(ShortName(RowFunc(Head))) THEN
+                  BodyEntry := Head."Source Entry No.";
+              UNTIL (BodyEntry <> 0) OR (Edge.NEXT = 0);
+          END;
+        UNTIL Head.NEXT = 0;
+      Edge.RESET;
+      Head.RESET;
+
+      IF BodyEntry > 0 THEN
+        BodyOpen := NavBody(TempLine,BodyEntry,Ret);
+      IF BodyOpen THEN BEGIN
+        TempLine.RESET;
+        IF TempLine.FINDSET THEN
+          REPEAT
+            IF TempLine."Nav Node" > 0 THEN
+              BodyRows := BodyRows + 1;
+            IF TempLine."Line Type" > TempLine."Line Type"::Code THEN
+              ViewEdges := ViewEdges + 1;
+          UNTIL TempLine.NEXT = 0;
+        TempLine.RESET;
+      END;
+      Check(Passed,Total,Report,ChkLoadedBodyTxt,BodyOpen AND (BodyRows > 0) AND (ViewEdges = 0),
+        STRSUBSTNO(LoadedBodyTxt,BodyRows,ViewEdges));
     END;
 
     LOCAL PROCEDURE CheckKeyAdvice@125(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
