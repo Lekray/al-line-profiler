@@ -18,9 +18,9 @@ OBJECT Table 110200 AL Line Profiler Line
                                                               RUS=Номер записи] }
     { 2   ;   ;Line Type           ;Option        ;CaptionML=[ENU=Line Type;
                                                               RUS=Тип строки];
-                                                   OptionCaptionML=[ENU=Object,Trigger/Function,Empty,Code;
-                                                                    RUS=Объект,Триггер/функция,Пусто,Код];
-                                                   OptionString=Object,Trigger/Function,Empty,Code }
+                                                   OptionCaptionML=[ENU=Object,Trigger/Function,Empty,Code,Section;
+                                                                    RUS=Объект,Триггер/функция,Пусто,Код,Раздел];
+                                                   OptionString=Object,Trigger/Function,Empty,Code,Section }
     { 3   ;   ;Object Type         ;Option        ;CaptionML=[ENU=Object Type;
                                                               RUS=Тип объекта];
                                                    OptionCaptionML=[ENU=TableData,Table,Form,Report,Dataport,CodeUnit,XMLport,MenuSuite,Page,Query;
@@ -101,6 +101,7 @@ OBJECT Table 110200 AL Line Profiler Line
     {    ;Entry No.                               ;Clustered=Yes }
     {    ;Object Type,Object ID,Line No.           }
     {    ;Self ms                                  }
+    {    ;Total ms                                 }
   }
   FIELDGROUPS
   {
@@ -2621,6 +2622,18 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       OnlyCallerHintTxt@1000000084 : TextConst 'ENU=This line is the only place the function is called from - %1 calls - so the figures are the same either way.;RUS=Эта строка - единственное место, откуда зовут функцию: %1 вызовов, поэтому числа те же в любом случае.';
       FromHereHintTxt@1000000080 : TextConst 'ENU=Figures cover calls made from the line above - %1 of %2. The body lines below cover all calls.;RUS=Числа - по вызовам из строки выше: %1 из %2. Строки тела ниже - по всем вызовам.';
       RecursiveHintTxt@1000000081 : TextConst 'ENU=Recursion - the full time is that of the outermost activation, the nested ones are already inside it.;RUS=Рекурсия - полное время взято по внешнему витку, вложенные витки уже входят в него.';
+      NoEdgeTotalHintTxt@1000000174 : TextConst 'ENU=All calls from here are recursion turns - their full time belongs to the outermost activation and is not split out. The figures here cover all calls of the function, and the time of this very call is on the line above.;RUS=Все вызовы отсюда - витки рекурсии, их полное время учтено на внешнем витке и отдельно не выделяется. Числа здесь - по всем вызовам функции, а время самого вызова стоит строкой выше.';
+      ChkRecurTotalTxt@1000000175 : TextConst 'ENU=drilling into a recursive call never shows full time below self;RUS=провал в рекурсивный вызов не показывает полное время меньше своего';
+      RecurTotalTxt@1000000176 : TextConst 'ENU=headers in the node %1, of them with full time below self %2;RUS=заголовков в узле %1, из них с полным меньше своего %2';
+      ChkRootFirstTxt@1000000182 : TextConst 'ENU=the named root object goes first, whatever its own time;RUS=названный корневой объект идет первым, каким бы ни было его время';
+      RootFirstTxt@1000000183 : TextConst 'ENU=first object in the view %1;RUS=первый объект в виде %1';
+      ChkSectionTxt@1000000184 : TextConst 'ENU=the rest go under one heading, by total time, and its self time is their sum;RUS=остальные идут под одной подписью, по полному времени, а ее свое время равно их сумме';
+      SectionTxt@1000000185 : TextConst 'ENU=headings %1, objects under them %2, heading self %3, their sum %4, out of order %5;RUS=подписей %1, объектов под ними %2, свое подписи %3, их сумма %4, не по порядку %5';
+      ChkSectionKeptOutTxt@1000000186 : TextConst 'ENU=the heading row never reaches the listing;RUS=строка-подпись в листинг не попадает';
+      SectionKeptOutTxt@1000000187 : TextConst 'ENU=heading rows in the listing %1;RUS=строк-подписей в листинге %1';
+      OtherObjTxt@1000000179 : TextConst 'ENU=Other objects (%1);RUS=Остальные объекты (%1)';
+      RootMissingTxt@1000000180 : TextConst 'ENU=The root object did not run in this measurement;RUS=Корневой объект в этом замере не выполнялся';
+      SectionHintTxt@1000000181 : TextConst 'ENU=Self time adds up honestly. Full time is not shown here - summing it over objects would count mutual calls twice.;RUS=Свое время складывается честно, а полное здесь не показано - складывая его по объектам, взаимные вызовы посчитали бы дважды.';
       EdgesDroppedTxt@1000000082 : TextConst 'ENU=call sites dropped %1 - raise Call Edges Max;RUS=мест вызова отброшено %1 - поднимите предел числа мест вызова';
       EdgelessTxt@1000000083 : TextConst 'ENU=calls without a calling line %1;RUS=вызовов без строки вызова %1';
       LostTxt@1000000019 : TextConst 'ENU=lost events %1;RUS=потеряно событий %1';
@@ -2703,6 +2716,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       ShiftVotes@1000000135 : ARRAY [2] OF Integer;
       RootFuncs@1000000072 : Text;
       RootFuncOnly@1000000073 : Boolean;
+      RootObjType@1000000177 : Integer;
+      RootObjID@1000000178 : Integer;
       DoorlessObjs@1000000138 : Text;
       GrandSelfSaved@1000000077 : Decimal;
       EdgeBuf@1000000078 : TEMPORARY Record 110202;
@@ -3062,6 +3077,12 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // у Code Coverage и у событий ETW различается ровно на единицу, смещение
       // снимается в LoadMeasurements.
       Setup.FetchOnce;
+      // Корень - свойство ПОКАЗА, а не сборки, и живет он в одноэкземплярном кодюните.
+      // Сбрасываем его здесь: иначе корень прошлого замера молча достался бы следующему,
+      // а обкатке и демонстрации - тем более, они его не задают вовсе. Кто корень хочет,
+      // тот и ставит его после сборки, перед показом.
+      RootObjType := 0;
+      RootObjID := 0;
       TempLine.RESET;
       TempLine.DELETEALL;
       CalibrateShift;
@@ -5207,6 +5228,10 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       ProfRun.INSERT;
       SaveQueries(ProfRun);
 
+      // Служебная строка раздела - принадлежность ПОКАЗА, в листинге её нет. В базу ей
+      // тем более нельзя: её род совпадает номером с РЕБРОМ у таблицы сохранённых строк,
+      // и присваивание молча превратило бы подпись раздела в ребро вызова.
+      TempLine.SETFILTER("Line Type",'<>%1',TempLine."Line Type"::Section);
       TempLine.FINDSET;
       REPEAT
         RunLine.INIT;
@@ -5314,6 +5339,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
     PROCEDURE LoadRun@43(RunNo@1000000000 : Integer;VAR TempLine@1000000001 : TEMPORARY Record 110200) Total : Decimal;
     VAR
       RunLine@1000000002 : Record 110202;
+      SavedRun@1000000003 : Record 110201;
     BEGIN
       TempLine.RESET;
       TempLine.DELETEALL;
@@ -5367,6 +5393,17 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // Полное время ОБЪЕКТА не пересчитываем даже теперь, когда ребра под рукой:
       // сохраненное число посчитано ИМИ ЖЕ при сборке, и второй счет тех же ребер может
       // разойтись с ним только округлением.
+      // Корень замера уехал в базу вместе с ним - полем объекта: у замера по всем
+      // объектам оно ничем другим не занято. Возвращаем его здесь, иначе загруженный
+      // замер открылся бы листинговым порядком, а живой - разделами.
+      RootObjType := 0;
+      RootObjID := 0;
+      IF SavedRun.GET(RunNo) THEN
+        IF SavedRun.Scope = SavedRun.Scope::"All Objects" THEN BEGIN
+          RootObjType := SavedRun."Object Type";
+          RootObjID := SavedRun."Object ID";
+        END;
+
       InnerKnown := FALSE;
       Rollup(TempLine,TempLine."Line Type"::"Trigger/Function");
       Rollup(TempLine,TempLine."Line Type"::Object);
@@ -5796,7 +5833,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       Seq := 0;
       BuildRootFuncs;
       BuildDoorless;
-      EmitLevel(TempLine,0,0,Seq,0);
+      EmitRoot(TempLine,Seq);
       MarkHeaviest(TempLine);
       TempLine.RESET;
     END;
@@ -5957,7 +5994,90 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       END;
     END;
 
-    LOCAL PROCEDURE EmitLevel@89(VAR TempLine@1000000000 : TEMPORARY Record 110200;NodeNo@1000000001 : Integer;Depth@1000000008 : Integer;VAR Seq@1000000002 : Integer;Shift@1000000003 : Integer);
+    [External]
+    PROCEDURE SetRootObject@227(ObjType@1000000000 : Integer;ObjID@1000000001 : Integer);
+    BEGIN
+      // Корень дерева - объект, с которого начали смотреть. Мерится при этом ВСЁ: корень
+      // задаёт порядок показа, а не область замера. Ставится ПОСЛЕ сборки результата -
+      // сборка его сбрасывает, потому что не знает, для показа она или для обкатки.
+      RootObjType := ObjType;
+      RootObjID := ObjID;
+    END;
+
+    LOCAL PROCEDURE EmitRoot@228(VAR TempLine@1000000000 : TEMPORARY Record 110200;VAR Seq@1000000001 : Integer);
+    VAR
+      Obj@1000000002 : TEMPORARY Record 110200;
+      Others@1000000003 : Integer;
+      OtherSelf@1000000004 : Decimal;
+      RootSeen@1000000005 : Boolean;
+    BEGIN
+      // Без названного корня порядок прежний - листинговый, объект за объектом, как их
+      // выдаёт журнал покрытия. С корнем он идёт первым, каким бы малым ни было его
+      // время: смотрят от него, а не от самого долгого места.
+      IF RootObjID = 0 THEN BEGIN
+        EmitLevel(TempLine,0,0,Seq,0,0,0);
+        EXIT;
+      END;
+
+      Obj.COPY(FullLine,TRUE);
+      Obj.RESET;
+      Obj.SETRANGE("Line Type",Obj."Line Type"::Object);
+      Obj.SETRANGE("Object Type",RootObjType);
+      Obj.SETRANGE("Object ID",RootObjID);
+      RootSeen := NOT Obj.ISEMPTY;
+      IF RootSeen THEN
+        EmitLevel(TempLine,0,0,Seq,0,RootObjType,RootObjID);
+
+      // Остальные: сколько их и сколько времени ушло мимо корня. Складывается только
+      // СВОЁ - полное по объектам не суммируется, взаимные вызовы легли бы дважды.
+      Obj.SETRANGE("Object Type");
+      Obj.SETRANGE("Object ID");
+      IF Obj.FINDSET THEN
+        REPEAT
+          IF (Obj."Object Type" <> RootObjType) OR (Obj."Object ID" <> RootObjID) THEN BEGIN
+            Others := Others + 1;
+            OtherSelf := OtherSelf + Obj."Self ms";
+          END;
+        UNTIL Obj.NEXT = 0;
+
+      // Корень в замер не попал - говорим об этом строкой, а не пустотой: иначе выглядит
+      // так, будто настройку не приняли.
+      IF NOT RootSeen THEN
+        AddSection(TempLine,Seq,RootMissingTxt,0);
+      IF Others = 0 THEN
+        EXIT;
+      AddSection(TempLine,Seq,STRSUBSTNO(OtherObjTxt,Others),OtherSelf);
+
+      Obj.SETCURRENTKEY("Total ms");
+      Obj.ASCENDING(FALSE);
+      IF Obj.FINDSET THEN
+        REPEAT
+          IF (Obj."Object Type" <> RootObjType) OR (Obj."Object ID" <> RootObjID) THEN
+            EmitLevel(TempLine,0,0,Seq,0,Obj."Object Type",Obj."Object ID");
+        UNTIL Obj.NEXT = 0;
+    END;
+
+    LOCAL PROCEDURE AddSection@229(VAR TempLine@1000000000 : TEMPORARY Record 110200;VAR Seq@1000000001 : Integer;Caption@1000000002 : Text[250];SelfMs@1000000003 : Decimal);
+    BEGIN
+      // Служебная строка вида - подпись раздела. В листинге её нет и в базу она не едет:
+      // род строки "Раздел" заведён только у таблицы показа, а у таблицы сохранённых
+      // строк тем же номером идёт РЕБРО, и присваивание молча превратило бы одно в другое.
+      // Полное время у неё пусто намеренно, и подсказка говорит почему.
+      Seq := Seq + 1;
+      TempLine.INIT;
+      TempLine."Entry No." := Seq;
+      TempLine."Line Type" := TempLine."Line Type"::Section;
+      TempLine.Line := COPYSTR(Caption,1,MAXSTRLEN(TempLine.Line));
+      TempLine."Self ms" := SelfMs;
+      TempLine.Indent := 0;
+      IF SelfMs > 0 THEN BEGIN
+        TempLine.Hint := COPYSTR(SectionHintTxt,1,MAXSTRLEN(TempLine.Hint));
+        TempLine."Hint Severity" := TempLine."Hint Severity"::Info;
+      END;
+      TempLine.INSERT;
+    END;
+
+    LOCAL PROCEDURE EmitLevel@89(VAR TempLine@1000000000 : TEMPORARY Record 110200;NodeNo@1000000001 : Integer;Depth@1000000008 : Integer;VAR Seq@1000000002 : Integer;Shift@1000000003 : Integer;OnlyType@1000000011 : Integer;OnlyID@1000000012 : Integer);
     VAR
       Cur@1000000004 : TEMPORARY Record 110200;
       PrevVisible@1000000005 : Boolean;
@@ -5973,6 +6093,12 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // Свой курсор на каждый уровень: общий сбился бы при спуске вглубь.
       Cur.COPY(FullLine,TRUE);
       Cur.RESET;
+      // Корневой уровень выкладывается ПО ОДНОМУ ОБЪЕКТУ за проход, когда назван корень:
+      // порядок там задаёт не листинг, а корень и полное время. Ноль - идти без отбора.
+      IF OnlyID <> 0 THEN BEGIN
+        Cur.SETRANGE("Object Type",OnlyType);
+        Cur.SETRANGE("Object ID",OnlyID);
+      END;
       IF NOT Cur.FINDSET THEN
         EXIT;
       PrevVisible := FALSE;
@@ -6008,7 +6134,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
             // из C/AL платформа не дает (свойства для этого в NAV 2018 нет вовсе), и
             // вложенный заголовок оставался спрятанным за свернутым узлом строки
             // вызова - провал выглядел так, будто ничего не произошло.
-            EmitLevel(TempLine,Child,Depth + 1,Seq,MyIndent - 1);
+            EmitLevel(TempLine,Child,Depth + 1,Seq,MyIndent - 1,0,0);
         END;
       UNTIL Cur.NEXT = 0;
     END;
@@ -6055,6 +6181,20 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // что других мест вызова у функции нет.
       TempLine.Line :=
         COPYSTR(TempLine.Line + '  ' + STRSUBSTNO(FromHereTagTxt,EdgeCalls,EdgeTotalCalls),1,MAXSTRLEN(TempLine.Line));
+
+      // Подменять можно только числами, которые не спорят друг с другом. Полное время
+      // ребра приемник копит ТОЛЬКО с внешнего витка: если каждый вызов отсюда пришелся
+      // на виток внутри уже открытой функции, полного времени у ребра нет вовсе, а свое
+      // есть - оно копится всегда. Подмена дала бы "свое есть, полного нет", то есть
+      // число, которого не бывает; а взять вместо него свое - поставить в колонку "со
+      // всем, что вызвано" величину в десятки раз меньше настоящей, которая тут же, в
+      // строке выше. Поэтому числа оставляем функции, по ВСЕМ вызовам: они хотя бы
+      // согласованы между собой, - а расхождение объясняем словами.
+      IF EdgeTotal < EdgeSelf THEN BEGIN
+        TempLine.Hint := COPYSTR(NoEdgeTotalHintTxt,1,MAXSTRLEN(TempLine.Hint));
+        TempLine."Hint Severity" := TempLine."Hint Severity"::Info;
+        EXIT;
+      END;
 
       // А вот ЧИСЛА подменяем только когда вызыватель не один: при единственном они и
       // так те же, а подмена дала бы расхождение с суммой строк тела на пролог кадра.
@@ -6862,6 +7002,154 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
         STRSUBSTNO(BodyNavTxt,Before,After,Heads));
     END;
 
+    LOCAL PROCEDURE CheckRootSection@230(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
+    VAR
+      TempLine@1000000003 : TEMPORARY Record 110200;
+      Cur@1000000004 : TEMPORARY Record 110200;
+      Sections@1000000005 : Integer;
+      SectionSelf@1000000006 : Decimal;
+      OthersSelf@1000000007 : Decimal;
+      FirstObjID@1000000008 : Integer;
+      SeenSection@1000000009 : Boolean;
+      HavePrev@1000000010 : Boolean;
+      PrevTotal@1000000011 : Decimal;
+      OutOfOrder@1000000012 : Integer;
+      InListing@1000000013 : Integer;
+      Others@1000000014 : Integer;
+    BEGIN
+      // Демонстрация задевает несколько объектов сразу - на ней и видно, что корень
+      // встал первым, а остальные ушли под свою подпись. Корнем берем сам отчет: он
+      // в замере есть всегда, а времени в нем меньше, чем в таблицах под ним, - тем и
+      // проверяется, что корень идет первым НЕ по времени.
+      RunDemo(200,TempLine);
+      SetRootObject(3,110200);
+      NavRoot(TempLine);
+
+      Cur.COPY(TempLine,TRUE);
+      Cur.RESET;
+      IF Cur.FINDSET THEN
+        REPEAT
+          CASE Cur."Line Type" OF
+            Cur."Line Type"::Section:
+              BEGIN
+                Sections := Sections + 1;
+                SectionSelf := Cur."Self ms";
+                SeenSection := TRUE;
+              END;
+            Cur."Line Type"::Object:
+              BEGIN
+                IF FirstObjID = 0 THEN
+                  FirstObjID := Cur."Object ID";
+                IF SeenSection THEN BEGIN
+                  Others := Others + 1;
+                  OthersSelf := OthersSelf + Cur."Self ms";
+                  IF HavePrev AND (Cur."Total ms" > PrevTotal) THEN
+                    OutOfOrder := OutOfOrder + 1;
+                  PrevTotal := Cur."Total ms";
+                  HavePrev := TRUE;
+                END;
+              END;
+          END;
+        UNTIL Cur.NEXT = 0;
+      Cur.RESET;
+
+      Check(Passed,Total,Report,ChkRootFirstTxt,FirstObjID = 110200,
+        STRSUBSTNO(RootFirstTxt,FirstObjID));
+      Check(Passed,Total,Report,ChkSectionTxt,
+        (Sections = 1) AND (Others > 0) AND (ABS(SectionSelf - OthersSelf) <= RollupTolerantMs) AND (OutOfOrder = 0),
+        STRSUBSTNO(SectionTxt,Sections,Others,SectionSelf,OthersSelf,OutOfOrder));
+
+      // Подпись раздела живет только в собранном виде. Попади она в листинг - уехала бы
+      // в базу РЕБРОМ: у таблицы сохраненных строк тем же номером идет ребро вызова.
+      Cur.COPY(FullLine,TRUE);
+      Cur.RESET;
+      Cur.SETRANGE("Line Type",Cur."Line Type"::Section);
+      InListing := Cur.COUNT;
+      Cur.RESET;
+      Check(Passed,Total,Report,ChkSectionKeptOutTxt,InListing = 0,
+        STRSUBSTNO(SectionKeptOutTxt,InListing));
+    END;
+
+    LOCAL PROCEDURE CheckRecursionTotal@225(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
+    VAR
+      TempLine@1000000003 : TEMPORARY Record 110200;
+      Index@1000000004 : Integer;
+      Depth@1000000005 : Integer;
+      HeadEntry@1000000006 : Integer;
+      CallEntry@1000000007 : Integer;
+      CallText@1000000008 : Text[250];
+      CallNode@1000000009 : Integer;
+      Ret@1000000010 : Integer;
+      Opened@1000000011 : Boolean;
+      Heads@1000000012 : Integer;
+      Broken@1000000013 : Integer;
+      Ignored@1000000014 : Text[250];
+      IgnoredNode@1000000015 : Integer;
+    BEGIN
+      // Строка, зовущая САМУ СЕБЯ, - единственное место, где полного времени у ребра нет
+      // никогда: приемник копит его с внешнего витка, а у прямой рекурсии кадр той же
+      // функции лежит в стеке всегда. Провалившись в такой вызов, заголовок показывал
+      // свое время при пустом полном - число, которого не бывает. Проверяем ЭКРАН, а не
+      // ребро: ребро тут ни при чем, оно честно говорит, что полного времени у него нет.
+      StartTrace(0,0,0,0);
+      FOR Index := 1 TO 50 DO
+        Depth := Depth + Recurse(30);
+      StopTrace;
+      BuildResult(TempLine,5,110200,TRUE);
+      NavRoot(TempLine);
+
+      // Тело рекурсивной функции на корне не раскрыто - открываем щелчком по заголовку,
+      // и только оттуда виден сам рекурсивный вызов.
+      HeadEntry := FindViewRow(TempLine,TempLine."Line Type"::"Trigger/Function",'RECURSE(',Ignored,IgnoredNode);
+      IF HeadEntry > 0 THEN
+        Opened := NavBody(TempLine,HeadEntry,Ret);
+      IF Opened THEN BEGIN
+        CallEntry := FindViewRow(TempLine,TempLine."Line Type"::Code,'RECURSE(LEVEL',CallText,CallNode);
+        Opened := FALSE;
+        IF CallEntry > 0 THEN
+          Opened := NavInto(TempLine,CallText,CallEntry,CallNode,Ret);
+      END;
+
+      IF Opened THEN BEGIN
+        TempLine.RESET;
+        TempLine.SETFILTER("Nav Node",'>0');
+        TempLine.SETRANGE("Line Type",TempLine."Line Type"::"Trigger/Function");
+        IF TempLine.FINDSET THEN
+          REPEAT
+            Heads := Heads + 1;
+            IF TempLine."Total ms" < TempLine."Self ms" THEN
+              Broken := Broken + 1;
+          UNTIL TempLine.NEXT = 0;
+        TempLine.RESET;
+      END;
+
+      Check(Passed,Total,Report,ChkRecurTotalTxt,Opened AND (Heads > 0) AND (Broken = 0),
+        STRSUBSTNO(RecurTotalTxt,Heads,Broken));
+    END;
+
+    LOCAL PROCEDURE FindViewRow@226(VAR TempLine@1000000000 : TEMPORARY Record 110200;Kind@1000000001 : Integer;Needle@1000000002 : Text[250];VAR RowText@1000000003 : Text[250];VAR NodeNo@1000000004 : Integer) : Integer;
+    VAR
+      Cur@1000000005 : TEMPORARY Record 110200;
+    BEGIN
+      // Первая строка собранного вида нужного рода, чей текст содержит образец. Свой
+      // курсор обязателен: раскрытие пересобирает вид, по которому идет поиск.
+      RowText := '';
+      NodeNo := 0;
+      Cur.COPY(TempLine,TRUE);
+      Cur.RESET;
+      Cur.SETRANGE("Line Type",Kind);
+      IF NOT Cur.FINDSET THEN
+        EXIT(0);
+      REPEAT
+        IF STRPOS(UPPERCASE(Cur.Line),Needle) > 0 THEN BEGIN
+          RowText := Cur.Line;
+          NodeNo := Cur."Nav Node";
+          EXIT(Cur."Source Entry No.");
+        END;
+      UNTIL Cur.NEXT = 0;
+      EXIT(0);
+    END;
+
     LOCAL PROCEDURE PlainRows@171(VAR TempLine@1000000000 : TEMPORARY Record 110200;VAR Heads@1000000001 : Integer;VAR CodeRows@1000000002 : Integer) : Integer;
     VAR
       Cur@1000000003 : TEMPORARY Record 110200;
@@ -7358,7 +7646,11 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
           REPEAT
             IF TempLine."Nav Node" > 0 THEN
               BodyRows := BodyRows + 1;
-            IF TempLine."Line Type" > TempLine."Line Type"::Code THEN
+            // За последним типом листинга живут двое: ребро, которому тут не место, и
+            // подпись раздела, которая законна. Спрашиваем про чужое, а не про всё.
+            IF (TempLine."Line Type" > TempLine."Line Type"::Code) AND
+               (TempLine."Line Type" <> TempLine."Line Type"::Section)
+            THEN
               ViewEdges := ViewEdges + 1;
           UNTIL TempLine.NEXT = 0;
         TempLine.RESET;
@@ -7543,6 +7835,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       CheckDoorlessNav(Passed,Total,Report);
       CheckWorkVisible(Passed,Total,Report);
       CheckBodyNav(Passed,Total,Report);
+      CheckRecursionTotal(Passed,Total,Report);
+      CheckRootSection(Passed,Total,Report);
       CheckTreeNav(Passed,Total,Report);
       CheckKeyAdvice(Passed,Total,Report);
       // ПОСЛЕ всех, кому нужны ребра: она заканчивается загрузкой сохраненного замера,
@@ -8457,7 +8751,11 @@ OBJECT Page 110200 AL Line Profiler
                                  ProfRun.Ended := RunEnded;
                                  ProfRun.Scope := MeasureScope;
                                  ProfRun."Object Type" := TargetObjectType;
-                                 ProfRun."Object ID" := EffectiveObjectID;
+                                 // Не область замера, а НАЗВАННЫЙ объект: при замере одного
+                                 // объекта это он сам, при замере всех - корень дерева. Иначе
+                                 // корень не пережил бы сохранения, и загруженный замер
+                                 // открылся бы иначе, чем тот же замер минуту назад.
+                                 ProfRun."Object ID" := TargetObjectID;
                                  ProfRun."Session Scope" := SessionScope;
                                  ProfRun."Session ID" := TargetSessionID;
                                  LoadedRunNo := ProfilerMgt.SaveRun(ProfRun);
@@ -8686,15 +8984,14 @@ OBJECT Page 110200 AL Line Profiler
                             }
 
     { 39  ;2   ;Group     ;
-                Visible=ObjectFieldsVisible;
                 GroupType=Group }
 
     { 3   ;3   ;Field     ;
                 Name=TargetObjectType;
                 CaptionML=[ENU=Object Type;
                            RUS=Тип объекта];
-                ToolTipML=[ENU=Specifies the type of the object to measure.;
-                           RUS=Определяет тип объекта, который нужно измерить.];
+                ToolTipML=[ENU=Specifies the type of the object to measure, or of the root object when all objects are measured.;
+                           RUS=Определяет тип измеряемого объекта, а при замере всех объектов - тип корневого объекта.];
                 OptionCaptionML=[ENU=TableData,Table,,Report,,CodeUnit,XMLport,MenuSuite,Page,Query;
                                  RUS=Данные таблицы,Таблица,,Отчет,,Кодовый модуль,XMLport,Меню,Страница,Запрос];
                 ApplicationArea=#All;
@@ -8705,8 +9002,8 @@ OBJECT Page 110200 AL Line Profiler
                 Name=TargetObjectID;
                 CaptionML=[ENU=Object ID;
                            RUS=Код объекта];
-                ToolTipML=[ENU=Specifies the object to measure. Press the lookup to pick the object by name.;
-                           RUS=Определяет измеряемый объект. По кнопке выбора объект ищется по имени.];
+                ToolTipML=[ENU=Specifies the object to measure. When all objects are measured it is optional and only sets the root of the tree - that object goes first and the rest fall under their own heading. Press the lookup to pick it by name.;
+                           RUS=Определяет измеряемый объект. При замере всех объектов он не обязателен и лишь задаёт корень дерева - его строки идут первыми, а остальные объекты уходят под свою подпись. По кнопке выбора объект ищется по имени.];
                 ApplicationArea=#All;
                 SourceExpr=TargetObjectID;
                 Enabled=NOT TraceIsRunning;
@@ -9103,7 +9400,6 @@ OBJECT Page 110200 AL Line Profiler
       OnlyExecuted@1000000004 : Boolean;
       TraceIsRunning@1000000005 : Boolean;
       MeasureScope@1000000019 : 'All Objects,Single Object';
-      ObjectFieldsVisible@1000000020 : Boolean;
       TotalsVisible@1000000040 : Boolean;
       DemoVisible@1000000060 : Boolean;
       LoadedRunDesc@1000000021 : Text[100];
@@ -9190,7 +9486,10 @@ OBJECT Page 110200 AL Line Profiler
       // серое поле все равно читается как "тут что-то настраивается". Видимость висит
       // на ГРУППАХ, а не на самих полях: во всем baseline переключение видимости в ходе
       // работы страницы сделано только так, на поле вне репитера оно не срабатывает.
-      ObjectFieldsVisible := MeasureScope = MeasureScope::"Single Object";
+      // Поля объекта с формы больше не убираются вовсе: они нужны в ОБОИХ режимах, только
+      // роль разная. При замере одного объекта они его и задают, при замере всех - задают
+      // корень дерева и заполняются по желанию. Пряча их во втором режиме, инструмент
+      // делал невозможным то, ради чего его и открывают: замерить всё, а смотреть с окна.
       SessionFieldsVisible := SessionScope = SessionScope::"Selected Session";
     END;
 
@@ -9203,6 +9502,17 @@ OBJECT Page 110200 AL Line Profiler
       EXIT(TargetObjectID);
     END;
 
+    LOCAL PROCEDURE RootObjectID@17() : Integer;
+    BEGIN
+      // Тот же самый объект, но в ДРУГОЙ роли. При замере всех объектов он ничего не
+      // сужает: меряется всё, а он лишь говорит, с чего начинается дерево - его строки
+      // идут первыми, а остальные объекты уходят под свою подпись. В режиме одного
+      // объекта корень не нужен вовсе: там и так один объект.
+      IF MeasureScope <> MeasureScope::"All Objects" THEN
+        EXIT(0);
+      EXIT(TargetObjectID);
+    END;
+
     LOCAL PROCEDURE LoadResult@1();
     BEGIN
       // Показанное пришло из приёмника, а не из сохранённого замера: провал по SQL
@@ -9210,6 +9520,9 @@ OBJECT Page 110200 AL Line Profiler
       LoadedRunNo := 0;
       LoadedRunDesc := '';
       TotalSelfMs := ProfilerMgt.BuildResult(Rec,TargetObjectType,EffectiveObjectID,OnlyExecuted);
+      // Корень ставится ПОСЛЕ сборки: сборка его сбрасывает, потому что не знает, для
+      // показа она или для обкатки. В режиме одного объекта корня нет - объект там один.
+      ProfilerMgt.SetRootObject(TargetObjectType,RootObjectID);
       ResetNav;
       MeasuredLines := CountMeasured;
       AfterBuild;
@@ -9378,6 +9691,10 @@ OBJECT Page 110200 AL Line Profiler
       CASE "Line Type" OF
         "Line Type"::Object:
           LineStyle := 'Strong';
+        "Line Type"::Section:
+          // Подпись раздела - не код и не замер, а разметка экрана. Начертание у нее
+          // сильнее заголовка объекта: она делит весь список надвое.
+          LineStyle := 'StrongAccent';
         "Line Type"::"Trigger/Function":
           LineStyle := 'StrongAccent';
         ELSE
