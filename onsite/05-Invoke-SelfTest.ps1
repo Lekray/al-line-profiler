@@ -17,7 +17,7 @@
     перезапуском экземпляра службы: ключ -RestartService делает это сам.
 
     Если PowerShell на сервере недоступен - тот же результат даёт клиент:
-    настройка профайлера -> галка "Обкатка" -> Object Designer -> Codeunit 110200 -> Run.
+    настройка профайлера -> галка "Обкатка" -> Object Designer -> Codeunit 110202 -> Run.
     Вердикт покажется одним окном сообщения. Через клиент правка идёт ЧЕРЕЗ NAV, поэтому
     кэш обновляется сам и перезапуск не нужен.
 .PARAMETER RestartService
@@ -72,7 +72,7 @@ $report = Join-Path $WorkFolder 'selftest.tsv'
 if (Test-Path $report) { Remove-Item $report -Force }
 
 $admin = Join-Path $ctx.Root 'NavAdminTool.ps1'
-if (-not (Test-Path $admin)) { Bad "нет $admin - запустить Codeunit 110200 из C/SIDE вручную"; return }
+if (-not (Test-Path $admin)) { Bad "нет $admin - запустить Codeunit 110202 из C/SIDE вручную"; return }
 # Модуль NAV печатает приветствие прямо в консоль - оно съедает полснимка.
 Import-Module $admin -ErrorAction Stop *>$null
 
@@ -90,7 +90,7 @@ if ($RestartService) {
 }
 
 $sw = [Diagnostics.Stopwatch]::StartNew()
-try { Invoke-NAVCodeunit -ServerInstance $ctx.Instance -CodeunitId 110200 -CompanyName $Company -ErrorAction Stop }
+try { Invoke-NAVCodeunit -ServerInstance $ctx.Instance -CodeunitId 110202 -CompanyName $Company -ErrorAction Stop }
 catch { Bad "кодюнит упал: $($_.Exception.Message)" }
 $sw.Stop()
 Line 'Кодюнит' ('отработал за {0:N0} с' -f $sw.Elapsed.TotalSeconds)
@@ -107,7 +107,7 @@ if (-not (Test-Path $report)) {
         Bad 'новых замеров в базе не появилось - тело обкатки не выполнялось вовсе'
         Bad 'причина не в правах: сервер не увидел взведённую галку, строка настройки у него в кэше'
         if ($RestartService) {
-            Line 'Что делать' 'служба уже перезапускалась - взведите галку "Обкатка" в клиенте и запустите Codeunit 110200 оттуда'
+            Line 'Что делать' 'служба уже перезапускалась - взведите галку "Обкатка" в клиенте и запустите Codeunit 110202 оттуда'
         } else {
             Line 'Что делать' 'повторить шаг с ключом -RestartService (перезапустит службу и порвёт сеансы) либо взвести галку в клиенте'
         }

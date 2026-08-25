@@ -2543,7 +2543,6 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
   {
     SingleInstance=Yes;
     OnRun=BEGIN
-            RunSelfTestIfAsked;
           END;
 
   }
@@ -2566,37 +2565,10 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       HotLineTxt@1000000004 : TextConst 'ENU=Hot line: %1 of the time shown, %2 ms.;RUS=Горячая строка: %1 показанного времени, %2 мс.';
       SqlInLoopTxt@1000000005 : TextConst 'ENU=Database call inside a loop: %1 SQL queries for %2 executions, %3 ms.;RUS=Обращение к БД в цикле: %1 запросов SQL на %2 выполнений, %3 мс.';
       SqlEvidenceTxt@1000000061 : TextConst 'ENU=SQL queries %1, %2 ms.;RUS=Запросов SQL %1, %2 мс.';
-      ChkShiftTxt@1000000132 : TextConst 'ENU=the line offset is confirmed by statement texts;RUS=смещение номера строки подтверждено текстами операторов';
-      ShiftTxt@1000000133 : TextConst 'ENU=offset %1, texts agree %2 against %3;RUS=смещение %1, тексты сошлись %2 против %3';
-      ChkForceStopTxt@1000000130 : TextConst 'ENU=force off really stops the coverage log;RUS=аварийное выключение действительно гасит журнал покрытия';
-      ForceStopTxt@1000000131 : TextConst 'ENU=covered lines before %1, after %2;RUS=строк в журнале до %1, после %2';
-      ChkRecTimeTxt@1000000126 : TextConst 'ENU=recursion does not stack its turns into the full time;RUS=рекурсия не складывает витки в полное время';
-      RecTimeTxt@1000000127 : TextConst 'ENU=recursive line %1 ms, the call that holds it %2 ms;RUS=рекурсивная строка %1 мс, вызов, внутри которого она вся, %2 мс';
-      ChkRecNavTxt@1000000128 : TextConst 'ENU=a directly recursive call opens into itself;RUS=в прямую рекурсию можно провалиться';
-      RecNavTxt@1000000129 : TextConst 'ENU=recursive line %1, headers opened %2;RUS=рекурсивная строка %1, заголовков открыто %2';
-      ChkStayTxt@1000000124 : TextConst 'ENU=expanding a call keeps the cursor on the calling line;RUS=раскрытие вызова оставляет курсор на строке вызова';
-      StayTxt@1000000125 : TextConst 'ENU=expanded from line %1, cursor left on line %2;RUS=раскрывали со строки %1, курсор оставлен на строке %2';
-      ChkFirstMarkTxt@1000000122 : TextConst 'ENU=the first measurement of the session is marked like the second;RUS=первый замер за сеанс размечен так же, как второй';
-      FirstMarkTxt@1000000123 : TextConst 'ENU=expandable lines: first run %1, second run %2;RUS=раскрываемых строк: первый замер %1, второй %2';
-      ChkExpandTxt@1000000120 : TextConst 'ENU=a line that opens is marked as expandable;RUS=строка, которая раскрывается, помечена как раскрываемая';
-      ExpandTxt@1000000121 : TextConst 'ENU=marked %1 of %2 code lines;RUS=помечено %1 строк кода из %2';
-      ChkParamsTxt@1000000117 : TextConst 'ENU=parameter values are taken off the run and land in the script;RUS=значения параметров сняты с прогона и встают в скрипт';
-      ParamsTxt@1000000118 : TextConst 'ENU=values taken for %1 of %2 parameterized queries;RUS=значения сняты у %1 из %2 запросов с параметрами';
-      ParamsOffTxt@1000000119 : TextConst 'ENU=the collection is off in the setup - nothing to check;RUS=сбор значений выключен в настройке - проверять нечего';
       OrphanHeadTxt@1000000113 : TextConst 'ENU=Measurements past the listing: %1. The %2 costliest are shown.;RUS=Замеров мимо листинга: %1. Показаны %2 самых дорогих.';
       OrphanRowTxt@1000000114 : TextConst 'ENU=%1, line %2, function %3: %4 ms, %5 executions;RUS=%1, строка %2, функция %3: %4 мс, выполнений %5';
       OrphanWhyTxt@1000000115 : TextConst 'ENU=Such a measurement has nowhere to go in the listing. The usual reasons are - the object worked outside the coverage log window (ordinary when measuring all sessions), the object was recompiled between the run and the report, or the line is one the coverage log does not consider executable.;RUS=Такому замеру в листинге не нашлось места. Обычные причины - объект работал вне окна журнала покрытия (при замере всех сессий это дело обычное), объект перекомпилировали между прогоном и отчетом, либо строка из тех, что журнал покрытия исполняемой не считает.';
       NoOrphanTxt@1000000116 : TextConst 'ENU=Every measurement found its line in the listing.;RUS=Все замеры нашли свою строку в листинге.';
-      ChkSqlScopeTxt@1000000104 : TextConst 'ENU=drilling into queries from a function header narrows the list to that function;RUS=провал в запросы с заголовка функции сужает список до ее запросов';
-      SqlScopeTxt@1000000105 : TextConst 'ENU=queries of the function %1, of the whole object %2;RUS=запросов функции %1, запросов всего объекта %2';
-      ChkKeyTxt@1000000102 : TextConst 'ENU=the advisor names the missing key instead of a general hint;RUS=советник называет нехватку ключа вместо общего совета';
-      KeyAdviceTxt@1000000103 : TextConst 'ENU=lines advised %1, of them naming the filtered field %2;RUS=строк с советом по ключу %1, из них с названным полем отбора %2';
-      ChkPubTxt@1000000092 : TextConst 'ENU=the event publisher carries the time of raising the event;RUS=заголовок издателя несет время подъема события';
-      PubTxt@1000000093 : TextConst 'ENU=raises %1, measurements past the listing %2;RUS=подъемов %1, замеров мимо листинга %2';
-      ChkTreeNavTxt@1000000089 : TextConst 'ENU=two calls open at once, closing one keeps the other;RUS=два вызова раскрыты одновременно, закрытие одного не гасит второй';
-      TreeNavTxt@1000000090 : TextConst 'ENU=open nodes %1, left after closing %2;RUS=раскрыто узлов %1, после закрытия осталось %2';
-      ChkSubNavTxt@1000000086 : TextConst 'ENU=drill from a publisher line opens the subscriber;RUS=провал со строки издателя открывает подписчика';
-      SubNavTxt@1000000087 : TextConst 'ENU=publisher line %1, subscriber lines %2;RUS=строка издателя %1, строк подписчика %2';
       NoKeyTxt@1000000096 : TextConst 'ENU=No key covers this filter (%1) - the whole table %2 is scanned (%3 queries). Adding a key changes the iteration order: check the result, not the speed.;RUS=Под этот отбор (%1) ключа нет - читается вся таблица %2 (%3 запр.). Новый ключ меняет порядок обхода: проверяйте не скорость, а совпадение результата.';
       KeyOffTxt@1000000097 : TextConst 'ENU=A key for this filter (%1) exists but is DISABLED: %2 (%3). Enabling it creates no upgrade conflict - the fields are already the right ones.;RUS=Ключ под этот отбор (%1) есть, но ВЫКЛЮЧЕН: %2 (%3). Включение конфликта при обновлении не создает - состав полей уже нужный.';
       ExtendKeyTxt@1000000098 : TextConst 'ENU=No ready key - key %1 (%2) lies entirely inside the filter. Append TO THE END: %3. The iteration order changes - check the result.;RUS=Готового ключа нет - ключ %1 (%2) целиком лежит внутри отбора. Допишите В КОНЕЦ: %3. Порядок обхода изменится - проверяйте результат.';
@@ -2616,7 +2588,6 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       CountInLoopTxt@1000000064 : TextConst 'ENU=COUNT inside a loop (%1 executions). Use ISEMPTY when only existence matters, CALCSUMS when a total does.;RUS=COUNT в цикле (%1 выполнений). Если нужен только факт наличия - ISEMPTY, если итог - CALCSUMS.';
       WriteInLoopTxt@1000000009 : TextConst 'ENU=A record is written on every iteration (%1 executions). If one field changes, use MODIFYALL in a single statement.;RUS=Запись в БД на каждой итерации (%1 выполнений). Если меняется одно поле - MODIFYALL одним оператором.';
       HeavyCallTxt@1000000010 : TextConst 'ENU=The slowest single execution takes %1 ms.;RUS=Худшее одиночное выполнение занимает %1 мс.';
-      NoWorkFolderErr@1000000017 : TextConst 'ENU=The work folder is not set. Fill it in on the AL Profiler Setup page.;RUS=Не задан рабочий каталог. Заполните его в настройке профайлера.';
       NothingToSaveErr@1000000015 : TextConst 'ENU=There is nothing to save: the result is empty.;RUS=Сохранять нечего: результат пуст.';
       NoTargetSessionErr@1000000051 : TextConst 'ENU=Pick the session to measure first.;RUS=Сначала выберите сессию, которую нужно измерить.';
       OwnSessionErr@1000000052 : TextConst 'ENU=That is your own session. Use the This Session scope for it.;RUS=Это ваша собственная сессия. Для нее выберите область "Моя сессия".';
@@ -2628,20 +2599,6 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       FromHereHintTxt@1000000080 : TextConst 'ENU=Figures cover calls made from the line above - %1 of %2. The body lines below cover all calls.;RUS=Числа - по вызовам из строки выше: %1 из %2. Строки тела ниже - по всем вызовам.';
       RecursiveHintTxt@1000000081 : TextConst 'ENU=Recursion - the full time is that of the outermost activation, the nested ones are already inside it.;RUS=Рекурсия - полное время взято по внешнему витку, вложенные витки уже входят в него.';
       NoEdgeTotalHintTxt@1000000174 : TextConst 'ENU=All calls from here are recursion turns - their full time belongs to the outermost activation and is not split out. The figures here cover all calls of the function, and the time of this very call is on the line above.;RUS=Все вызовы отсюда - витки рекурсии, их полное время учтено на внешнем витке и отдельно не выделяется. Числа здесь - по всем вызовам функции, а время самого вызова стоит строкой выше.';
-      ChkRecurTotalTxt@1000000175 : TextConst 'ENU=drilling into a recursive call never shows full time below self;RUS=провал в рекурсивный вызов не показывает полное время меньше своего';
-      RecurTotalTxt@1000000176 : TextConst 'ENU=headers in the node %1, of them with full time below self %2;RUS=заголовков в узле %1, из них с полным меньше своего %2';
-      ChkRootFirstTxt@1000000182 : TextConst 'ENU=the named root object goes first, whatever its own time;RUS=названный корневой объект идет первым, каким бы ни было его время';
-      RootFirstTxt@1000000183 : TextConst 'ENU=first object in the view %1;RUS=первый объект в виде %1';
-      ChkSectionTxt@1000000184 : TextConst 'ENU=the rest go under one heading, by total time, and its self time is their sum;RUS=остальные идут под одной подписью, по полному времени, а ее свое время равно их сумме';
-      SectionTxt@1000000185 : TextConst 'ENU=headings %1, objects under them %2, heading self %3, their sum %4, out of order %5;RUS=подписей %1, объектов под ними %2, свое подписи %3, их сумма %4, не по порядку %5';
-      ChkSectionKeptOutTxt@1000000186 : TextConst 'ENU=the heading row never reaches the listing;RUS=строка-подпись в листинг не попадает';
-      SectionKeptOutTxt@1000000187 : TextConst 'ENU=heading rows in the listing %1;RUS=строк-подписей в листинге %1';
-      ChkPlainHiddenTxt@1000000188 : TextConst 'ENU=with plain functions off the root keeps entry points only;RUS=со снятым показом обычных функций на корне остаются одни точки входа';
-      PlainHiddenTxt@1000000189 : TextConst 'ENU=plain functions under objects with a live door %1, entry points %2;RUS=обычных функций под объектами с живой дверью %1, точек входа %2';
-      ChkPlainNetTxt@1000000190 : TextConst 'ENU=where no entry point ran the plain functions stay even when they are switched off;RUS=где не отработала ни одна точка входа, обычные функции остаются и при снятом показе';
-      PlainNetTxt@1000000191 : TextConst 'ENU=object self %1, sum under it %2, children %3;RUS=свое объекта %1, сумма под ним %2, потомков %3';
-      ChkRootSavedTxt@1000000194 : TextConst 'ENU=the root object survives saving and comes back with the run;RUS=корневой объект переживает сохранение и возвращается вместе с замером';
-      RootSavedTxt@1000000195 : TextConst 'ENU=with a root - first object %1, headings %2. Without a root - first object %3, headings %4;RUS=с корнем - первый объект %1, подписей %2. Без корня - первый объект %3, подписей %4';
       OtherObjTxt@1000000179 : TextConst 'ENU=Other objects (%1);RUS=Остальные объекты (%1)';
       RootMissingTxt@1000000180 : TextConst 'ENU=The root object did not run in this measurement;RUS=Корневой объект в этом замере не выполнялся';
       SectionHintTxt@1000000181 : TextConst 'ENU=Self time adds up honestly. Full time is not shown here - summing it over objects would count mutual calls twice.;RUS=Свое время складывается честно, а полное здесь не показано - складывая его по объектам, взаимные вызовы посчитали бы дважды.';
@@ -2664,59 +2621,6 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       SlowStartTxt@1000000056 : TextConst 'ENU=the trace never got going: %1 statements in %2 ms;RUS=трассировка не разогналась: операторов %1 за %2 мс';
       RecvErrTxt@1000000058 : TextConst 'ENU=receiver error: %1;RUS=ошибка приемника: %1';
       ThinStreamTxt@1000000059 : TextConst 'ENU=only %1 events reached the receiver during the run;RUS=за прогон до приемника дошло всего %1 событий';
-      PassedTxt@1000000032 : TextConst 'ENU=PASSED;RUS=ПРОЙДЕНО';
-      FailedTxt@1000000033 : TextConst 'ENU=FAILED;RUS=ПРОВАЛ';
-      VerdictTxt@1000000034 : TextConst 'ENU=#self test: passed %1 of %2;RUS=#обкатка: пройдено %1 из %2';
-      ChkHealthTxt@1000000035 : TextConst 'ENU=trace health;RUS=здоровье замера';
-      ChkJoinTxt@1000000036 : TextConst 'ENU=measurements landed on the listing;RUS=замеры легли на листинг';
-      ChkLinesTxt@1000000037 : TextConst 'ENU=measured lines found;RUS=измеренные строки найдены';
-      ChkTimeTxt@1000000057 : TextConst 'ENU=the run produced timings;RUS=замер дал время';
-      ChkTimeBTxt@1000000060 : TextConst 'ENU=the second run produced timings;RUS=второй замер дал время';
-      ChkSumTxt@1000000038 : TextConst 'ENU=sum of the line times equals the run total;RUS=сумма времени строк сошлась с итогом замера';
-      ChkSqlLeTxt@1000000039 : TextConst 'ENU=SQL time does not exceed the line time;RUS=время SQL не превышает время строки';
-      ChkInclTxt@1000000075 : TextConst 'ENU=full time of function headers is not below their own time;RUS=полное время заголовков функций не меньше своего';
-      ChkRootDoorTxt@1000000139 : TextConst 'ENU=no object on the root level is a dead end;RUS=ни один объект на корне не тупик';
-      ChkDoorlessTxt@1000000141 : TextConst 'ENU=an object entered by a plain call is open from the root;RUS=объект, в который вошли прямым вызовом, открывается с корня';
-      DoorlessTxt@1000000142 : TextConst 'ENU=children under it %1, dead ends in the view %2;RUS=потомков под ним %1, тупиков в виде %2';
-      ChkWorkSeenTxt@1000000143 : TextConst 'ENU=work of a plain procedure is visible under its object;RUS=работа обычной процедуры видна под своим объектом';
-      WorkSeenTxt@1000000144 : TextConst 'ENU=hits under it %1, object self ms %2, sum under it %3, frame rows under headers %4;RUS=выполнений под ним %1, свое время объекта %2, сумма под ним %3, каркасных строк под заголовками %4';
-      ChkBodyNavTxt@1000000146 : TextConst 'ENU=the body of a plain procedure opens from its own header;RUS=тело обычной процедуры раскрывается с ее собственного заголовка';
-      BodyNavTxt@1000000147 : TextConst 'ENU=lines before %1, lines after %2, headers %3;RUS=строк до %1, строк после %2, заголовков %3';
-      ChkObjTotalTxt@1000000150 : TextConst 'ENU=object total time holds the time of what it called;RUS=полное время объекта вмещает время того, что он вызвал';
-      ObjTotalTxt@1000000151 : TextConst 'ENU=caller total %1, caller self %2, callee self %3, objects above their own time %4;RUS=полное вызывающего %1, свое вызывающего %2, свое вызванного %3, объектов выше своего времени %4';
-      ChkObjBoundTxt@1000000152 : TextConst 'ENU=no object shows less total time than its own function;RUS=ни один объект не показывает полное время меньше, чем его функция';
-      ObjBoundTxt@1000000153 : TextConst 'ENU=objects %1, broken %2;RUS=объектов %1, нарушений %2';
-      ChkObjKeptTxt@1000000154 : TextConst 'ENU=a loaded run keeps the object total time;RUS=загруженный замер сохраняет полное время объекта';
-      ObjKeptTxt@1000000155 : TextConst 'ENU=saved %1, loaded %2;RUS=сохранено %1, загружено %2';
-      ChkDeadArrowTxt@1000000156 : TextConst 'ENU=every expansion arrow of a loaded run leads somewhere;RUS=у загруженного замера каждая стрелка раскрытия ведет куда-то';
-      DeadArrowTxt@1000000157 : TextConst 'ENU=arrows %1, leading nowhere %2;RUS=стрелок %1, ведут в никуда %2';
-      ChkLoadedEdgesTxt@1000000158 : TextConst 'ENU=a loaded run keeps its call edges;RUS=загруженный замер сохраняет свои ребра вызова';
-      LoadedEdgesTxt@1000000159 : TextConst 'ENU=edges after loading %1;RUS=ребер после загрузки %1';
-      ChkCrossObjTxt@1000000160 : TextConst 'ENU=a loaded run still opens the subscriber in another object;RUS=загруженный замер по-прежнему открывает подписчика в чужом объекте';
-      CrossObjTxt@1000000161 : TextConst 'ENU=lines leading into the other object %1;RUS=строк, ведущих в чужой объект %1';
-      ChkLoadedHintTxt@1000000162 : TextConst 'ENU=a loaded run still knows the calls made from a line;RUS=загруженный замер по-прежнему знает вызовы со строки';
-      ChkHeaviestTxt@1000000164 : TextConst 'ENU=every branch marks exactly one heaviest line;RUS=в каждом дереве отмечена ровно одна самая тяжелая строка';
-      HeaviestTxt@1000000165 : TextConst 'ENU=marks %1, branches out of order %2;RUS=отметок %1, деревьев не в порядке %2';
-      ChkLoadedMarkTxt@1000000166 : TextConst 'ENU=a loaded run marks its heaviest lines too;RUS=загруженный замер тоже размечает свои тяжелые строки';
-      LoadedMarkTxt@1000000167 : TextConst 'ENU=marks after loading %1;RUS=отметок после загрузки %1';
-      ChkLoadedListTxt@1000000168 : TextConst 'ENU=a loaded run comes back as a listing, without edge rows;RUS=загруженный замер приходит листингом, без строк-ребер';
-      LoadedListTxt@1000000169 : TextConst 'ENU=loaded lines %1, edge rows among them %2;RUS=загружено строк %1, из них строк-ребер %2';
-      ChkLoadedBodyTxt@1000000172 : TextConst 'ENU=an opened body of a loaded run shows only its own lines;RUS=раскрытое тело загруженного замера показывает только свои строки';
-      LoadedBodyTxt@1000000173 : TextConst 'ENU=rows under the body %1, rows of a foreign type %2;RUS=строк под телом %1, строк чужого типа %2';
-      ChkResaveTxt@1000000170 : TextConst 'ENU=saving a loaded run copies its edges once and whole;RUS=сохранение загруженного замера везет его ребра один раз и целиком';
-      ResaveTxt@1000000171 : TextConst 'ENU=edges saved %1, saved again %2, without a callee %3;RUS=ребер сохранено %1, сохранено повторно %2, без вызванной стороны %3';
-      LoadedHintTxt@1000000163 : TextConst 'ENU=lines with call numbers %1, worst total ms %2;RUS=строк с числами вызова %1, наибольшее полное время %2';
-      RootDoorTxt@1000000140 : TextConst 'ENU=objects without a single child: %1;RUS=объектов без единого потомка: %1';
-      HeadersTxt@1000000076 : TextConst 'ENU=headers %1, broken %2;RUS=заголовков %1, нарушений %2';
-      ChkCmpTxt@1000000040 : TextConst 'ENU=comparison found lines on both sides;RUS=сравнение нашло строки с обеих сторон';
-      ChkQueriesTxt@1000000041 : TextConst 'ENU=queries collected;RUS=запросы SQL собраны';
-      NoSqlTxt@1000000050 : TextConst 'ENU=the run made no database calls, nothing to collect;RUS=прогон не ходил в базу, собирать нечего';
-      ChkDeclareTxt@1000000042 : TextConst 'ENU=DECLARE block for %1;RUS=блок DECLARE для %1';
-      ChkMatchKeyTxt@1000000043 : TextConst 'ENU=match key ignores indent and case;RUS=ключ сопоставления не зависит от отступа и регистра';
-      ChkCodePartTxt@1000000044 : TextConst 'ENU=trailing comment is cut off;RUS=хвостовой комментарий срезается';
-      ChkEtlTxt@1000000045 : TextConst 'ENU=trace file parsed;RUS=файл трассировки разобран';
-      EtlSkippedTxt@1000000046 : TextConst 'ENU=no selftest.etl in the work folder, check skipped;RUS=в рабочем каталоге нет selftest.etl, проверка пропущена';
-      RowsTxt@1000000047 : TextConst 'ENU=lines %1, events %2;RUS=строк %1, событий %2';
       FullLine@1000000067 : TEMPORARY Record 110200;
       NavTargets@1000000068 : ARRAY [20] OF Text;
       NavFrom@1000000071 : ARRAY [20] OF Integer;
@@ -2742,7 +2646,6 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       ParamCaptureOn@1000000107 : Boolean;
       ParamNote@1000000108 : Text;
       NavTooDeepErr@1000000070 : TextConst 'ENU=Too many calls are open at once, close some of them first.;RUS=Открыто слишком много вызовов сразу, закройте лишние.';
-      DeclMissTxt@1000000048 : TextConst 'ENU=parameters %1, DECLARE lines missing %2, types not resolved %3;RUS=параметров %1, не хватает строк DECLARE %2, типов не опознано %3';
 
     [External]
     PROCEDURE StartTrace@1(SessionScope@1000000000 : Integer;TargetSessionID@1000000004 : Integer;TargetObjectType@1000000001 : Integer;TargetObjectID@1000000002 : Integer);
@@ -3301,7 +3204,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       EXIT('');
     END;
 
-    LOCAL PROCEDURE GetLineShift@160(VAR Shift@1000000000 : Integer;VAR VotesFor@1000000001 : Integer;VAR VotesAgainst@1000000002 : Integer);
+    [External]
+    PROCEDURE GetLineShift@160(VAR Shift@1000000000 : Integer;VAR VotesFor@1000000001 : Integer;VAR VotesAgainst@1000000002 : Integer);
     BEGIN
       Shift := LineShift;
       VotesFor := ShiftVotes[LineShift + 1];
@@ -4163,7 +4067,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       Line.Hint := COPYSTR(HintText,1,MAXSTRLEN(Line.Hint));
     END;
 
-    LOCAL PROCEDURE CodePart@33(LineText@1000000000 : Text[250]) : Text[250];
+    [External]
+    PROCEDURE CodePart@33(LineText@1000000000 : Text[250]) : Text[250];
     VAR
       Pos@1000000001 : Integer;
     BEGIN
@@ -4612,7 +4517,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       EXIT('');
     END;
 
-    LOCAL PROCEDURE KeyAdvice@111(VAR Line@1000000000 : TEMPORARY Record 110200;VAR Advice@1000000001 : Text) : Boolean;
+    [External]
+    PROCEDURE KeyAdvice@111(VAR Line@1000000000 : TEMPORARY Record 110200;VAR Advice@1000000001 : Text) : Boolean;
     VAR
       TabNo@1000000002 : Integer;
       EqNos@1000000003 : Text;
@@ -5045,18 +4951,6 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       UNTIL EdgeBuf.NEXT = 0;
       Line.RESET;
       EdgeBuf.RESET;
-    END;
-
-    LOCAL PROCEDURE CountExpandable@152(RunNo@1000000000 : Integer) : Integer;
-    VAR
-      RunLine@1000000001 : Record 110202;
-    BEGIN
-      RunLine.RESET;
-      RunLine.SETRANGE("Run No.",RunNo);
-      // Ребра лежат в той же таблице своим типом строки: считаем СТРОКИ листинга.
-      RunLine.SETFILTER("Line Type",'<>%1',RunLine."Line Type"::Edge);
-      RunLine.SETRANGE("Can Expand",TRUE);
-      EXIT(RunLine.COUNT);
     END;
 
     LOCAL PROCEDURE CollectOrphans@144(VAR TempMeas@1000000000 : TEMPORARY Record 110200;TargetObjectType@1000000001 : Integer;TargetObjectID@1000000002 : Integer) : Integer;
@@ -5541,7 +5435,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       NavCount := Kept;
     END;
 
-    LOCAL PROCEDURE NavTargetsOf@216(FromEntryNo@1000000000 : Integer;LineText@1000000001 : Text[250]) Names : Text;
+    [External]
+    PROCEDURE NavTargetsOf@216(FromEntryNo@1000000000 : Integer;LineText@1000000001 : Text[250]) Names : Text;
     VAR
       Anchor@1000000002 : TEMPORARY Record 110200;
     BEGIN
@@ -5782,7 +5677,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
         ListFence + AnyObjectToken + UPPERCASE(ShortName(FuncName)) + ListFence) > 0);
     END;
 
-    LOCAL PROCEDURE HeaderHasBody@218(VAR Header@1000000000 : Record 110200) : Boolean;
+    [External]
+    PROCEDURE HeaderHasBody@218(VAR Header@1000000000 : Record 110200) : Boolean;
     BEGIN
       // Заголовок ЕСТЬ, а строк кода под ним нет - это ЗАГЛУШКА события: тело у издателя
       // пустое, и раскрывать по ней нечего. Правило одно на ОБА пути к цели - и по
@@ -5975,7 +5871,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       EXIT(STRPOS(DoorlessObjs,ListFence + FORMAT(ObjType) + TokenSep + FORMAT(ObjID) + ListFence) > 0);
     END;
 
-    LOCAL PROCEDURE LiveDoor@232(ObjType@1000000000 : Integer;ObjID@1000000001 : Integer) : Boolean;
+    [External]
+    PROCEDURE LiveDoor@232(ObjType@1000000000 : Integer;ObjID@1000000001 : Integer) : Boolean;
     BEGIN
       // Есть ли у объекта хоть одна ОТРАБОТАВШАЯ точка входа. Пустой список значит "ни у
       // кого": так бывает у замера, собранного целиком из прямых вызовов.
@@ -6274,7 +6171,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       TempLine."Hint Severity" := TempLine."Hint Severity"::Info;
     END;
 
-    LOCAL PROCEDURE GetEdge@96(VAR Caller@1000000000 : TEMPORARY Record 110200;VAR Callee@1000000001 : TEMPORARY Record 110200;VAR EdgeCalls@1000000002 : Integer;VAR EdgeTotalCalls@1000000003 : Integer;VAR EdgeTotal@1000000004 : Decimal;VAR EdgeSelf@1000000005 : Decimal;VAR EdgeRecursive@1000000006 : Boolean) : Boolean;
+    [External]
+    PROCEDURE GetEdge@96(VAR Caller@1000000000 : TEMPORARY Record 110200;VAR Callee@1000000001 : TEMPORARY Record 110200;VAR EdgeCalls@1000000002 : Integer;VAR EdgeTotalCalls@1000000003 : Integer;VAR EdgeTotal@1000000004 : Decimal;VAR EdgeSelf@1000000005 : Decimal;VAR EdgeRecursive@1000000006 : Boolean) : Boolean;
     VAR
       CalleeShort@1000000009 : Text[250];
       Found@1000000010 : Boolean;
@@ -6367,7 +6265,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       EXIT(InTargets(NavTargets[NodeNo],Line,FuncName));
     END;
 
-    LOCAL PROCEDURE RowFunc@169(VAR Line@1000000000 : Record 110200) : Text[250];
+    [External]
+    PROCEDURE RowFunc@169(VAR Line@1000000000 : Record 110200) : Text[250];
     BEGIN
       // У строки кода имя функции лежит полем, а у ЗАГОЛОВКА поля нет вовсе - там оно
       // и есть текст строки. Место одно на всех: разойдясь, две записи этого правила
@@ -6377,7 +6276,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       EXIT(Line."Function Name");
     END;
 
-    LOCAL PROCEDURE IsEntryPoint@85(FuncName@1000000000 : Text[250]) : Boolean;
+    [External]
+    PROCEDURE IsEntryPoint@85(FuncName@1000000000 : Text[250]) : Boolean;
     VAR
       Short@1000000001 : Text[250];
       Third@1000000002 : Text[1];
@@ -6404,7 +6304,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       EXIT(ShortName(DELCHR(FuncName,'<>',' ')));
     END;
 
-    LOCAL PROCEDURE ShortName@86(FuncName@1000000000 : Text[250]) : Text[250];
+    [External]
+    PROCEDURE ShortName@86(FuncName@1000000000 : Text[250]) : Text[250];
     VAR
       Pos@1000000001 : Integer;
       Name@1000000002 : Text[250];
@@ -6592,7 +6493,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       UNTIL Line.NEXT = 0;
     END;
 
-    LOCAL PROCEDURE MakeMatchKey@48(FunctionName@1000000000 : Text[250];LineText@1000000001 : Text[250]) : Text[250];
+    [External]
+    PROCEDURE MakeMatchKey@48(FunctionName@1000000000 : Text[250];LineText@1000000001 : Text[250]) : Text[250];
     BEGIN
       // Функция в ключе обязательна: один и тот же оператор встречается в объекте
       // десятки раз, и без функции повторы перемешались бы между собой.
@@ -6607,6 +6509,622 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       WHILE STRPOS(Source,'  ') > 0 DO
         Source := DELSTR(Source,STRPOS(Source,'  '),1);
       EXIT(Source);
+    END;
+
+    [External]
+    PROCEDURE ForceStopProbe@156(Rounds@1000000000 : Integer) : Integer;
+    VAR
+      Index@1000000001 : Integer;
+      Acc@1000000002 : Integer;
+    BEGIN
+      FOR Index := 1 TO Rounds DO
+        Acc := Acc + Index;
+      EXIT(Acc);
+    END;
+
+    [External]
+    PROCEDURE ForceStopProbeB@157(Rounds@1000000000 : Integer) : Integer;
+    VAR
+      Index@1000000001 : Integer;
+      Acc@1000000002 : Integer;
+    BEGIN
+      // Близнец предыдущей нарочно: ее строки в журнал попасть еще не успели, и если
+      // журнал не погас, они в нем появятся - вот это и ловится.
+      FOR Index := 1 TO Rounds DO
+        Acc := Acc + Index;
+      EXIT(Acc);
+    END;
+
+    [Integration]
+    [External]
+    PROCEDURE OnSelfTestEvent@105(Seed@1000000000 : Integer;VAR Acc@1000000001 : Decimal);
+    BEGIN
+    END;
+
+    LOCAL PROCEDURE CharOf@68(Code@1000000000 : Integer) : Char;
+    VAR
+      Ch@1000000001 : Char;
+    BEGIN
+      // Символ в C/AL получают только присваиванием кода: литерала символа в языке нет.
+      Ch := Code;
+      EXIT(Ch);
+    END;
+
+    [External]
+    PROCEDURE MeasureAndSave@52(Caption@1000000000 : Text[100];Iterations@1000000001 : Integer) : Integer;
+    VAR
+      TempLine@1000000002 : TEMPORARY Record 110200;
+      ProfRun@1000000003 : Record 110201;
+      Customer@1000000004 : Record 18;
+      Index@1000000005 : Integer;
+      Total@1000000006 : Integer;
+      StartedAt@1000000007 : DateTime;
+      Depth@1000000008 : Integer;
+    BEGIN
+      StartedAt := CURRENTDATETIME;
+      StartTrace(0,0,0,0);
+
+      FOR Index := 1 TO Iterations DO BEGIN
+        // Отбор меняется на каждой итерации НАМЕРЕННО: с постоянным отбором записи
+        // отдаёт кэш NAV, обращений к базе нет вовсе, и проверять на таком прогоне
+        // сбор запросов SQL нечем.
+        Customer.RESET;
+        Customer.SETFILTER("No.",'>%1',FORMAT(Index));
+        IF Customer.FINDFIRST THEN
+          Customer.CALCFIELDS(Balance);
+        Total := Total + Index;
+        // Рекурсия в нагрузке нужна не для красоты: полное время строки, которая зовет
+        // саму себя, внешний виток содержит ЦЕЛИКОМ, и складывая витки строка получала
+        // время, кратное глубине. Без такого места в прогоне проверять это нечем.
+        Depth := Depth + Recurse(30);
+      END;
+
+      StopTrace;
+      BuildResult(TempLine,5,110200,TRUE);
+
+      ProfRun.Description := Caption;
+      ProfRun.Started := StartedAt;
+      ProfRun.Ended := CURRENTDATETIME;
+      ProfRun.Scope := ProfRun.Scope::"Single Object";
+      ProfRun."Object Type" := ProfRun."Object Type"::CodeUnit;
+      ProfRun."Object ID" := 110200;
+      ProfRun."Session Scope" := ProfRun."Session Scope"::"This Session";
+      ProfRun."Session ID" := SESSIONID;
+      EXIT(SaveRun(ProfRun));
+    END;
+
+    [External]
+    PROCEDURE Recurse@153(Level@1000000000 : Integer) : Integer;
+    BEGIN
+      IF Level <= 0 THEN
+        EXIT(0);
+      EXIT(1 + Recurse(Level - 1));
+    END;
+
+    [External]
+    PROCEDURE RunDemo@69(Rows@1000000000 : Integer;VAR TempLine@1000000001 : TEMPORARY Record 110200) GrandSelf : Decimal;
+    VAR
+      DemoReport@1000000002 : Report 110200;
+    BEGIN
+      // Демонстрационный замер: инструмент сам готовит данные, сам гоняет по ним отчет
+      // и сам его меряет. Кроме собственных таблиц профайлера ничего не трогает,
+      // поэтому запускается на любой базе, где нет ни наших данных, ни чужого сценария.
+      IF Rows <= 0 THEN
+        Rows := 7000;
+      FillDemoData(Rows);
+
+      // Меряем ВСЕ объекты, а не один отчет: подписчик восьмого шага лежит в отдельном
+      // кодюните 110201, и при отборе по отчету его не было бы ни в замере, ни в листинге -
+      // а он и есть то, ради чего шаг заведен.
+      StartTrace(0,0,0,0);
+      DemoReport.SetLoad(2000,2500,200,200000,2500);
+      DemoReport.RUNMODAL;
+      StopTrace;
+
+      GrandSelf := BuildResult(TempLine,0,0,TRUE);
+      ClearDemoData;
+    END;
+
+    LOCAL PROCEDURE FillDemoData@70(Rows@1000000000 : Integer);
+    VAR
+      DemoLine@1000000001 : Record 110206;
+      DemoRef@1000000002 : Record 110207;
+      Index@1000000003 : Integer;
+      Slot@1000000004 : Integer;
+    BEGIN
+      // Код группы и код справочника идут парой: правильный проход отчета держит их
+      // в массиве на двадцать мест, и обращаться в базу построчно ему незачем.
+      ClearDemoData;
+
+      FOR Index := 1 TO 20 DO BEGIN
+        DemoRef.INIT;
+        DemoRef."Ref Code" := DemoCode('REF',Index);
+        DemoRef.Name := 'Позиция справочника ' + FORMAT(Index);
+        DemoRef.Factor := 1 + Index / 100;
+        DemoRef.INSERT;
+      END;
+
+      FOR Index := 1 TO Rows DO BEGIN
+        Slot := 1 + (Index MOD 20);
+        DemoLine.INIT;
+        DemoLine."Entry No." := Index;
+        DemoLine."Group Code" := DemoCode('GRP',Slot);
+        DemoLine."Ref Code" := DemoCode('REF',Slot);
+        DemoLine.Description := 'Строка документа ' + FORMAT(Index);
+        DemoLine.Quantity := 1 + (Index MOD 7);
+        DemoLine.Amount := 100 + (Index MOD 500);
+        DemoLine."Posting Date" := TODAY - (Index MOD 90);
+        DemoLine.INSERT;
+      END;
+    END;
+
+    LOCAL PROCEDURE ClearDemoData@71();
+    VAR
+      DemoLine@1000000000 : Record 110206;
+      DemoRef@1000000001 : Record 110207;
+    BEGIN
+      DemoLine.DELETEALL;
+      DemoRef.DELETEALL;
+    END;
+
+    LOCAL PROCEDURE DemoCode@72(Prefix@1000000000 : Code[10];Slot@1000000001 : Integer) : Code[20];
+    BEGIN
+      IF Slot < 10 THEN
+        EXIT(Prefix + '0' + FORMAT(Slot));
+      EXIT(Prefix + FORMAT(Slot));
+    END;
+
+    LOCAL PROCEDURE MaxNavNodes@176() : Integer;
+    BEGIN
+      // Сколько мест вызова держим раскрытыми разом. Число берем у САМОГО массива:
+      // границу C/AL пишет литералом, и держать рядом второй литерал - значит однажды
+      // поправить один из двух. Расширяя NavTargets, расширить и его спутников - NavFrom,
+      // NavParent, NavBodyOnly, Closed с NewNo в DropNode, Seen в OpenNodes: их границы
+      // C/AL тоже берет литералом, и отсюда до них не дотянуться.
+      EXIT(ARRAYLEN(NavTargets));
+    END;
+
+    LOCAL PROCEDURE MaxNavDepth@177() : Integer;
+    BEGIN
+      // Предел спуска при сборке вида: раскрытая функция может звать ту самую строку,
+      // из которой ее раскрыли, и обход ходил бы по кругу. Глубже, чем открытых узлов,
+      // дерево не бывает - потому тут не свое число, а то же самое.
+      EXIT(MaxNavNodes);
+    END;
+
+    LOCAL PROCEDURE MaxOrphansShown@179() : Integer;
+    BEGIN
+      // Сколько промахов склейки печатать поименно. Список нужен, чтобы понять, ЧТО
+      // потерялось; на тысяче строк он этого уже не объясняет.
+      EXIT(15);
+    END;
+
+    LOCAL PROCEDURE MaxCalibrationRows@180() : Integer;
+    BEGIN
+      // Сколько замеров опрашиваем на калибровке смещения строк. Голосование сходится
+      // на первых десятках, а проход идет по всей трассе: на большом замере это
+      // единственное место, где платят за уже известное.
+      EXIT(300);
+    END;
+
+    LOCAL PROCEDURE MinCalibrationKeyLen@181() : Integer;
+    BEGIN
+      // Короткие тексты в голосовании не участвуют: EXIT и END встречаются в объекте
+      // десятками и совпадут где угодно.
+      EXIT(8);
+    END;
+
+    LOCAL PROCEDURE PollTraceMs@182() : Integer;
+    BEGIN
+      // Шаг ожидания, пока поток событий не пойдет. Мельче - и сам цикл станет
+      // заметной нагрузкой, крупнее - и короткий сценарий успеет отработать в тишине.
+      EXIT(20);
+    END;
+
+    LOCAL PROCEDURE RingBufferDrainMs@183() : Integer;
+    BEGIN
+      // Ждем рассылку кольцевого буфера: задержка у сеанса Extended Events - секунда,
+      // ждем с запасом, иначе на коротком замере значения выходят пустыми.
+      EXIT(1800);
+    END;
+
+    LOCAL PROCEDURE SqlCommandTimeoutSec@184() : Integer;
+    BEGIN
+      // Предел на команду без чтения - заведение и снятие сеанса Extended Events.
+      EXIT(30);
+    END;
+
+    LOCAL PROCEDURE SqlReadTimeoutSec@185() : Integer;
+    BEGIN
+      // Предел на чтение кольцевого буфера: разбор XML на стороне сервера дороже самой
+      // команды, и предела на команду ему бывает мало.
+      EXIT(60);
+    END;
+
+    LOCAL PROCEDURE MediumHotPctShare@186() : Integer;
+    BEGIN
+      // Доля от порога горячей строки, с которой подсказка получает СРЕДНЮЮ важность:
+      // на средней требования мягче ровно вдвое.
+      EXIT(2);
+    END;
+
+    LOCAL PROCEDURE MediumHotMsFactor@187() : Integer;
+    BEGIN
+      // Время, которое поднимает подсказку до средней важности само по себе, без доли:
+      // строка в десять порогов дорога и в большом прогоне, где доля ее мала.
+      EXIT(10);
+    END;
+
+    LOCAL PROCEDURE SqlPerHitsShare@188() : Integer;
+    BEGIN
+      // Запрос хотя бы на каждое пятое выполнение: реже - это уже разовая работа,
+      // которую кэш записей платформы и так свел к нескольким обращениям.
+      EXIT(5);
+    END;
+
+    LOCAL PROCEDURE ClientCoreFirstTable@189() : Integer;
+    BEGIN
+      // Объекты от десяти миллионов - ядро подсистем клиента: правка этого диапазона
+      // нашей лицензией не покрыта, и совет по нему остается сигналом, а не заданием.
+      EXIT(10000000);
+    END;
+
+    [External]
+    PROCEDURE MsRounding@190() : Decimal;
+    BEGIN
+      // Три знака после запятой - ровно столько, сколько показывают колонки времени.
+      EXIT(0.001);
+    END;
+
+    LOCAL PROCEDURE PctRounding@191() : Decimal;
+    BEGIN
+      // Сотые доли процента: на них уже видна разница между соседними строками.
+      EXIT(0.01);
+    END;
+
+    LOCAL PROCEDURE DeltaPctRounding@192() : Decimal;
+    BEGIN
+      // У дельты сравнения знаков меньше: сотые доли процента на глаз неразличимы, а
+      // колонка от лишних знаков становится нечитаемой.
+      EXIT(0.1);
+    END;
+
+    LOCAL PROCEDURE IsCSideObjectType@193(ObjType@1000000000 : Integer) : Boolean;
+    BEGIN
+      // Типы объектов C/SIDE идут подряд от TableData до Query. Все, что вне этого
+      // ряда, - кадр платформы или незнакомое имя: листинга у него нет и быть не может.
+      EXIT((ObjType >= 0) AND (ObjType <= 9));
+    END;
+
+    [External]
+    PROCEDURE HealthClean@194() : Integer;
+    BEGIN
+      // Уровни здоровья замера. Они СРАВНИМЫ по возрастанию: на этом держится и подъем
+      // итогового уровня по худшему замечанию, и раскраска панели итогов на странице.
+      // Чисто: замечаний нет вовсе.
+      EXIT(0);
+    END;
+
+    [External]
+    PROCEDURE HealthNoted@195() : Integer;
+    BEGIN
+      // Есть на что посмотреть: замеру верить можно, но с оговоркой.
+      EXIT(1);
+    END;
+
+    [External]
+    PROCEDURE HealthBroken@196() : Integer;
+    BEGIN
+      // Замеру верить нельзя.
+      EXIT(2);
+    END;
+
+    LOCAL PROCEDURE CrText@204() : Text[1];
+    BEGIN
+      // Коды 13, 10, 9 и 39 - это ASCII, величина не наша. Имя тут нужно не чтобы ее
+      // менять, а чтобы не заводить ее заново в каждой второй процедуре: пар
+      // "переменная плюс присваивание кода" в объекте было десять.
+      EXIT(FORMAT(CharOf(13)));
+    END;
+
+    LOCAL PROCEDURE LfText@205() : Text[1];
+    BEGIN
+      EXIT(FORMAT(CharOf(10)));
+    END;
+
+    [External]
+    PROCEDURE CrLf@206() : Text[2];
+    BEGIN
+      EXIT(CrText + LfText);
+    END;
+
+    [External]
+    PROCEDURE TabText@207() : Text[1];
+    BEGIN
+      EXIT(FORMAT(CharOf(9)));
+    END;
+
+    LOCAL PROCEDURE AposText@208() : Text[1];
+    BEGIN
+      // Апостроф: в скрипте T-SQL им обрамлены строковые литералы, а внутри литерала
+      // C/AL его не написать.
+      EXIT(FORMAT(CharOf(39)));
+    END;
+
+    LOCAL PROCEDURE ListFence@209() : Text[1];
+    BEGIN
+      // Черта, которой обрамлен КАЖДЫЙ элемент списка-строки - и первый, и последний.
+      // Списки эти собирают в одном месте, а спрашивают в другом: искать элемент вместе
+      // с обеими чертами и значит искать его целиком, а не хвостом чужого имени.
+      EXIT('|');
+    END;
+
+    [External]
+    PROCEDURE TokenSep@210() : Text[1];
+    BEGIN
+      // Разделитель внутри метки цели: тип, код объекта и имя функции.
+      EXIT(':');
+    END;
+
+    LOCAL PROCEDURE AnyObjectToken@211() : Text[4];
+    BEGIN
+      // Метка цели "любой объект": в нее сводится вызов, у которого объект по тексту
+      // строки не опознан, и по ней же цель ищут по одному короткому имени функции.
+      EXIT('*' + TokenSep + '*' + TokenSep);
+    END;
+
+    LOCAL PROCEDURE "------- Self Test Access -------"@236();
+    BEGIN
+      // Ниже - то, что открыто РАДИ ОБКАТКИ и больше низачем: она уехала в свой объект и
+      // до буферов главного кодюнита иначе не дотянется. Список не растет молча: новая
+      // строка здесь означает, что проверке понадобилось еще одно окно внутрь.
+      // Прочее, что обкатка зовет, открыто на своих местах - это боевые правила, которые
+      // она проверяет, а не окна, заведенные ради нее.
+    END;
+
+    [External]
+    PROCEDURE CopyFullLine@237(VAR Target@1000000000 : TEMPORARY Record 110200);
+    BEGIN
+      // ПОЛНЫЙ листинг, а не показанное: показанное - кадр текущего проваливания.
+      Target.COPY(FullLine,TRUE);
+    END;
+
+    [External]
+    PROCEDURE CopyEdgeBuf@238(VAR Target@1000000000 : TEMPORARY Record 110202);
+    BEGIN
+      // Ребра живут только здесь: приемник держит их до следующего прогона, а у замера
+      // они в базе. Годность ребер - это не состояние, а наличие строк в буфере.
+      Target.COPY(EdgeBuf,TRUE);
+    END;
+
+    [External]
+    PROCEDURE NavNodeCount@239() : Integer;
+    BEGIN
+      // Сколько узлов раскрытия открыто. Дерево на экране - это УЗЕЛ, а не весь вид.
+      EXIT(NavCount);
+    END;
+
+    [External]
+    PROCEDURE LineShiftValue@240() : Integer;
+    BEGIN
+      // Смещение номера строки, снятое калибровкой: трассировка дает ОПЕРАТОР, листинг -
+      // строку целиком. Константой оно не бывает, и зашивать его нельзя.
+      EXIT(LineShift);
+    END;
+
+    BEGIN
+    {
+      Построчный профайлер C/AL для Microsoft Dynamics NAV 2018.
+      Объекты 110200-110207 - части одного инструмента: страницы, таблицы,
+      демонстрационный отчёт и кодюниты.
+
+      Автор:    Дмитрий Данильцев
+      Создан:   14.08.2026
+      Исходник: https://github.com/Lekray/al-line-profiler
+
+      История правок ведётся в системе контроля версий, а не здесь.
+    }
+    END.
+  }
+}
+
+OBJECT Codeunit 110201 AL Profiler Demo Subscriber
+{
+  OBJECT-PROPERTIES
+  {
+    Date=20.08.26;
+    Time=12:00:00;
+    Modified=Yes;
+    Version List=ALProfiler;
+  }
+  PROPERTIES
+  {
+    OnRun=BEGIN
+          END;
+
+  }
+  CODE
+  {
+
+    [EventSubscriber(Codeunit,110200,OnSelfTestEvent)]
+    [External]
+    PROCEDURE OnSelfTestEvent@2(Seed@1000000000 : Integer;VAR Acc@1000000001 : Decimal);
+    VAR
+      Index@1000000002 : Integer;
+    BEGIN
+      // Подписчик обкатки: она проверяет, что провал со строки издателя доходит сюда,
+      // в ЧУЖОЙ объект, - по ребрам вызова, а не по тексту строки.
+      FOR Index := 1 TO 20 DO
+        Acc := Acc + (Seed + Index) MOD 5;
+    END;
+
+    PROCEDURE RunPlainWork@3(Seed@1000000000 : Integer;VAR Acc@1000000001 : Decimal);
+    VAR
+      Index@1000000002 : Integer;
+    BEGIN
+      // Обычная процедура с обычным именем: ее зовут напрямую, платформа о ней не знает
+      // ничего. Ради нее объект и попадает в замер без единой точки входа - тот самый
+      // случай, на котором корень оставался глухим.
+      FOR Index := 1 TO 5 DO
+        Acc := Acc + Seed / (Index + 1);
+    END;
+
+    [EventSubscriber(Report,110200,OnDemoEvent)]
+    LOCAL PROCEDURE OnDemoEvent@1(Seed@1000000000 : Integer;VAR Acc@1000000001 : Decimal);
+    VAR
+      Index@1000000002 : Integer;
+    BEGIN
+      // Подписчик демонстрационного отчета. Живет ОТДЕЛЬНО от издателя намеренно: в
+      // строке издателя его имени нет вовсе, и найти, куда ушло время, можно только
+      // проваливанием по ребрам вызова - ровно так же, как на живой логике клиента.
+      FOR Index := 1 TO 20 DO
+        Acc := Acc + (Seed + Index) MOD 7;
+    END;
+
+    BEGIN
+    {
+      Построчный профайлер C/AL для Microsoft Dynamics NAV 2018.
+      Объекты 110200-110207 - части одного инструмента: страницы, таблицы,
+      демонстрационный отчёт и кодюниты.
+
+      Автор:    Дмитрий Данильцев
+      Создан:   14.08.2026
+      Исходник: https://github.com/Lekray/al-line-profiler
+
+      История правок ведётся в системе контроля версий, а не здесь.
+    }
+    END.
+  }
+}
+
+OBJECT Codeunit 110202 AL Profiler Self Test
+{
+  OBJECT-PROPERTIES
+  {
+    Date=25.08.26;
+    Time=12:00:00;
+    Modified=Yes;
+    Version List=ALProfiler;
+  }
+  PROPERTIES
+  {
+    OnRun=BEGIN
+            RunSelfTestIfAsked;
+          END;
+
+  }
+  CODE
+  {
+    VAR
+      ProfilerMgt@1000000900 : Codeunit 110200;
+      Setup@1000000901 : Record 110204;
+      ChkShiftTxt@1000000132 : TextConst 'ENU=the line offset is confirmed by statement texts;RUS=смещение номера строки подтверждено текстами операторов';
+      ShiftTxt@1000000133 : TextConst 'ENU=offset %1, texts agree %2 against %3;RUS=смещение %1, тексты сошлись %2 против %3';
+      ChkForceStopTxt@1000000130 : TextConst 'ENU=force off really stops the coverage log;RUS=аварийное выключение действительно гасит журнал покрытия';
+      ForceStopTxt@1000000131 : TextConst 'ENU=covered lines before %1, after %2;RUS=строк в журнале до %1, после %2';
+      ChkRecTimeTxt@1000000126 : TextConst 'ENU=recursion does not stack its turns into the full time;RUS=рекурсия не складывает витки в полное время';
+      RecTimeTxt@1000000127 : TextConst 'ENU=recursive line %1 ms, the call that holds it %2 ms;RUS=рекурсивная строка %1 мс, вызов, внутри которого она вся, %2 мс';
+      ChkRecNavTxt@1000000128 : TextConst 'ENU=a directly recursive call opens into itself;RUS=в прямую рекурсию можно провалиться';
+      RecNavTxt@1000000129 : TextConst 'ENU=recursive line %1, headers opened %2;RUS=рекурсивная строка %1, заголовков открыто %2';
+      ChkStayTxt@1000000124 : TextConst 'ENU=expanding a call keeps the cursor on the calling line;RUS=раскрытие вызова оставляет курсор на строке вызова';
+      StayTxt@1000000125 : TextConst 'ENU=expanded from line %1, cursor left on line %2;RUS=раскрывали со строки %1, курсор оставлен на строке %2';
+      ChkFirstMarkTxt@1000000122 : TextConst 'ENU=the first measurement of the session is marked like the second;RUS=первый замер за сеанс размечен так же, как второй';
+      FirstMarkTxt@1000000123 : TextConst 'ENU=expandable lines: first run %1, second run %2;RUS=раскрываемых строк: первый замер %1, второй %2';
+      ChkExpandTxt@1000000120 : TextConst 'ENU=a line that opens is marked as expandable;RUS=строка, которая раскрывается, помечена как раскрываемая';
+      ExpandTxt@1000000121 : TextConst 'ENU=marked %1 of %2 code lines;RUS=помечено %1 строк кода из %2';
+      ChkParamsTxt@1000000117 : TextConst 'ENU=parameter values are taken off the run and land in the script;RUS=значения параметров сняты с прогона и встают в скрипт';
+      ParamsTxt@1000000118 : TextConst 'ENU=values taken for %1 of %2 parameterized queries;RUS=значения сняты у %1 из %2 запросов с параметрами';
+      ParamsOffTxt@1000000119 : TextConst 'ENU=the collection is off in the setup - nothing to check;RUS=сбор значений выключен в настройке - проверять нечего';
+      ChkSqlScopeTxt@1000000104 : TextConst 'ENU=drilling into queries from a function header narrows the list to that function;RUS=провал в запросы с заголовка функции сужает список до ее запросов';
+      SqlScopeTxt@1000000105 : TextConst 'ENU=queries of the function %1, of the whole object %2;RUS=запросов функции %1, запросов всего объекта %2';
+      ChkKeyTxt@1000000102 : TextConst 'ENU=the advisor names the missing key instead of a general hint;RUS=советник называет нехватку ключа вместо общего совета';
+      KeyAdviceTxt@1000000103 : TextConst 'ENU=lines advised %1, of them naming the filtered field %2;RUS=строк с советом по ключу %1, из них с названным полем отбора %2';
+      ChkPubTxt@1000000092 : TextConst 'ENU=the event publisher carries the time of raising the event;RUS=заголовок издателя несет время подъема события';
+      PubTxt@1000000093 : TextConst 'ENU=raises %1, measurements past the listing %2;RUS=подъемов %1, замеров мимо листинга %2';
+      ChkTreeNavTxt@1000000089 : TextConst 'ENU=two calls open at once, closing one keeps the other;RUS=два вызова раскрыты одновременно, закрытие одного не гасит второй';
+      TreeNavTxt@1000000090 : TextConst 'ENU=open nodes %1, left after closing %2;RUS=раскрыто узлов %1, после закрытия осталось %2';
+      ChkSubNavTxt@1000000086 : TextConst 'ENU=drill from a publisher line opens the subscriber;RUS=провал со строки издателя открывает подписчика';
+      SubNavTxt@1000000087 : TextConst 'ENU=publisher line %1, subscriber lines %2;RUS=строка издателя %1, строк подписчика %2';
+      NoWorkFolderErr@1000000017 : TextConst 'ENU=The work folder is not set. Fill it in on the AL Profiler Setup page.;RUS=Не задан рабочий каталог. Заполните его в настройке профайлера.';
+      ChkRecurTotalTxt@1000000175 : TextConst 'ENU=drilling into a recursive call never shows full time below self;RUS=провал в рекурсивный вызов не показывает полное время меньше своего';
+      RecurTotalTxt@1000000176 : TextConst 'ENU=headers in the node %1, of them with full time below self %2;RUS=заголовков в узле %1, из них с полным меньше своего %2';
+      ChkRootFirstTxt@1000000182 : TextConst 'ENU=the named root object goes first, whatever its own time;RUS=названный корневой объект идет первым, каким бы ни было его время';
+      RootFirstTxt@1000000183 : TextConst 'ENU=first object in the view %1;RUS=первый объект в виде %1';
+      ChkSectionTxt@1000000184 : TextConst 'ENU=the rest go under one heading, by total time, and its self time is their sum;RUS=остальные идут под одной подписью, по полному времени, а ее свое время равно их сумме';
+      SectionTxt@1000000185 : TextConst 'ENU=headings %1, objects under them %2, heading self %3, their sum %4, out of order %5;RUS=подписей %1, объектов под ними %2, свое подписи %3, их сумма %4, не по порядку %5';
+      ChkSectionKeptOutTxt@1000000186 : TextConst 'ENU=the heading row never reaches the listing;RUS=строка-подпись в листинг не попадает';
+      SectionKeptOutTxt@1000000187 : TextConst 'ENU=heading rows in the listing %1;RUS=строк-подписей в листинге %1';
+      ChkPlainHiddenTxt@1000000188 : TextConst 'ENU=with plain functions off the root keeps entry points only;RUS=со снятым показом обычных функций на корне остаются одни точки входа';
+      PlainHiddenTxt@1000000189 : TextConst 'ENU=plain functions under objects with a live door %1, entry points %2;RUS=обычных функций под объектами с живой дверью %1, точек входа %2';
+      ChkPlainNetTxt@1000000190 : TextConst 'ENU=where no entry point ran the plain functions stay even when they are switched off;RUS=где не отработала ни одна точка входа, обычные функции остаются и при снятом показе';
+      PlainNetTxt@1000000191 : TextConst 'ENU=object self %1, sum under it %2, children %3;RUS=свое объекта %1, сумма под ним %2, потомков %3';
+      ChkRootSavedTxt@1000000194 : TextConst 'ENU=the root object survives saving and comes back with the run;RUS=корневой объект переживает сохранение и возвращается вместе с замером';
+      RootSavedTxt@1000000195 : TextConst 'ENU=with a root - first object %1, headings %2. Without a root - first object %3, headings %4;RUS=с корнем - первый объект %1, подписей %2. Без корня - первый объект %3, подписей %4';
+      PassedTxt@1000000032 : TextConst 'ENU=PASSED;RUS=ПРОЙДЕНО';
+      FailedTxt@1000000033 : TextConst 'ENU=FAILED;RUS=ПРОВАЛ';
+      VerdictTxt@1000000034 : TextConst 'ENU=#self test: passed %1 of %2;RUS=#обкатка: пройдено %1 из %2';
+      ChkHealthTxt@1000000035 : TextConst 'ENU=trace health;RUS=здоровье замера';
+      ChkJoinTxt@1000000036 : TextConst 'ENU=measurements landed on the listing;RUS=замеры легли на листинг';
+      ChkLinesTxt@1000000037 : TextConst 'ENU=measured lines found;RUS=измеренные строки найдены';
+      ChkTimeTxt@1000000057 : TextConst 'ENU=the run produced timings;RUS=замер дал время';
+      ChkTimeBTxt@1000000060 : TextConst 'ENU=the second run produced timings;RUS=второй замер дал время';
+      ChkSumTxt@1000000038 : TextConst 'ENU=sum of the line times equals the run total;RUS=сумма времени строк сошлась с итогом замера';
+      ChkSqlLeTxt@1000000039 : TextConst 'ENU=SQL time does not exceed the line time;RUS=время SQL не превышает время строки';
+      ChkInclTxt@1000000075 : TextConst 'ENU=full time of function headers is not below their own time;RUS=полное время заголовков функций не меньше своего';
+      ChkRootDoorTxt@1000000139 : TextConst 'ENU=no object on the root level is a dead end;RUS=ни один объект на корне не тупик';
+      ChkDoorlessTxt@1000000141 : TextConst 'ENU=an object entered by a plain call is open from the root;RUS=объект, в который вошли прямым вызовом, открывается с корня';
+      DoorlessTxt@1000000142 : TextConst 'ENU=children under it %1, dead ends in the view %2;RUS=потомков под ним %1, тупиков в виде %2';
+      ChkWorkSeenTxt@1000000143 : TextConst 'ENU=work of a plain procedure is visible under its object;RUS=работа обычной процедуры видна под своим объектом';
+      WorkSeenTxt@1000000144 : TextConst 'ENU=hits under it %1, object self ms %2, sum under it %3, frame rows under headers %4;RUS=выполнений под ним %1, свое время объекта %2, сумма под ним %3, каркасных строк под заголовками %4';
+      ChkBodyNavTxt@1000000146 : TextConst 'ENU=the body of a plain procedure opens from its own header;RUS=тело обычной процедуры раскрывается с ее собственного заголовка';
+      BodyNavTxt@1000000147 : TextConst 'ENU=lines before %1, lines after %2, headers %3;RUS=строк до %1, строк после %2, заголовков %3';
+      ChkObjTotalTxt@1000000150 : TextConst 'ENU=object total time holds the time of what it called;RUS=полное время объекта вмещает время того, что он вызвал';
+      ObjTotalTxt@1000000151 : TextConst 'ENU=caller total %1, caller self %2, callee self %3, objects above their own time %4;RUS=полное вызывающего %1, свое вызывающего %2, свое вызванного %3, объектов выше своего времени %4';
+      ChkObjBoundTxt@1000000152 : TextConst 'ENU=no object shows less total time than its own function;RUS=ни один объект не показывает полное время меньше, чем его функция';
+      ObjBoundTxt@1000000153 : TextConst 'ENU=objects %1, broken %2;RUS=объектов %1, нарушений %2';
+      ChkObjKeptTxt@1000000154 : TextConst 'ENU=a loaded run keeps the object total time;RUS=загруженный замер сохраняет полное время объекта';
+      ObjKeptTxt@1000000155 : TextConst 'ENU=saved %1, loaded %2;RUS=сохранено %1, загружено %2';
+      ChkDeadArrowTxt@1000000156 : TextConst 'ENU=every expansion arrow of a loaded run leads somewhere;RUS=у загруженного замера каждая стрелка раскрытия ведет куда-то';
+      DeadArrowTxt@1000000157 : TextConst 'ENU=arrows %1, leading nowhere %2;RUS=стрелок %1, ведут в никуда %2';
+      ChkLoadedEdgesTxt@1000000158 : TextConst 'ENU=a loaded run keeps its call edges;RUS=загруженный замер сохраняет свои ребра вызова';
+      LoadedEdgesTxt@1000000159 : TextConst 'ENU=edges after loading %1;RUS=ребер после загрузки %1';
+      ChkCrossObjTxt@1000000160 : TextConst 'ENU=a loaded run still opens the subscriber in another object;RUS=загруженный замер по-прежнему открывает подписчика в чужом объекте';
+      CrossObjTxt@1000000161 : TextConst 'ENU=lines leading into the other object %1;RUS=строк, ведущих в чужой объект %1';
+      ChkLoadedHintTxt@1000000162 : TextConst 'ENU=a loaded run still knows the calls made from a line;RUS=загруженный замер по-прежнему знает вызовы со строки';
+      ChkHeaviestTxt@1000000164 : TextConst 'ENU=every branch marks exactly one heaviest line;RUS=в каждом дереве отмечена ровно одна самая тяжелая строка';
+      HeaviestTxt@1000000165 : TextConst 'ENU=marks %1, branches out of order %2;RUS=отметок %1, деревьев не в порядке %2';
+      ChkLoadedMarkTxt@1000000166 : TextConst 'ENU=a loaded run marks its heaviest lines too;RUS=загруженный замер тоже размечает свои тяжелые строки';
+      LoadedMarkTxt@1000000167 : TextConst 'ENU=marks after loading %1;RUS=отметок после загрузки %1';
+      ChkLoadedListTxt@1000000168 : TextConst 'ENU=a loaded run comes back as a listing, without edge rows;RUS=загруженный замер приходит листингом, без строк-ребер';
+      LoadedListTxt@1000000169 : TextConst 'ENU=loaded lines %1, edge rows among them %2;RUS=загружено строк %1, из них строк-ребер %2';
+      ChkLoadedBodyTxt@1000000172 : TextConst 'ENU=an opened body of a loaded run shows only its own lines;RUS=раскрытое тело загруженного замера показывает только свои строки';
+      LoadedBodyTxt@1000000173 : TextConst 'ENU=rows under the body %1, rows of a foreign type %2;RUS=строк под телом %1, строк чужого типа %2';
+      ChkResaveTxt@1000000170 : TextConst 'ENU=saving a loaded run copies its edges once and whole;RUS=сохранение загруженного замера везет его ребра один раз и целиком';
+      ResaveTxt@1000000171 : TextConst 'ENU=edges saved %1, saved again %2, without a callee %3;RUS=ребер сохранено %1, сохранено повторно %2, без вызванной стороны %3';
+      LoadedHintTxt@1000000163 : TextConst 'ENU=lines with call numbers %1, worst total ms %2;RUS=строк с числами вызова %1, наибольшее полное время %2';
+      RootDoorTxt@1000000140 : TextConst 'ENU=objects without a single child: %1;RUS=объектов без единого потомка: %1';
+      HeadersTxt@1000000076 : TextConst 'ENU=headers %1, broken %2;RUS=заголовков %1, нарушений %2';
+      ChkCmpTxt@1000000040 : TextConst 'ENU=comparison found lines on both sides;RUS=сравнение нашло строки с обеих сторон';
+      ChkQueriesTxt@1000000041 : TextConst 'ENU=queries collected;RUS=запросы SQL собраны';
+      NoSqlTxt@1000000050 : TextConst 'ENU=the run made no database calls, nothing to collect;RUS=прогон не ходил в базу, собирать нечего';
+      ChkDeclareTxt@1000000042 : TextConst 'ENU=DECLARE block for %1;RUS=блок DECLARE для %1';
+      ChkMatchKeyTxt@1000000043 : TextConst 'ENU=match key ignores indent and case;RUS=ключ сопоставления не зависит от отступа и регистра';
+      ChkCodePartTxt@1000000044 : TextConst 'ENU=trailing comment is cut off;RUS=хвостовой комментарий срезается';
+      ChkEtlTxt@1000000045 : TextConst 'ENU=trace file parsed;RUS=файл трассировки разобран';
+      EtlSkippedTxt@1000000046 : TextConst 'ENU=no selftest.etl in the work folder, check skipped;RUS=в рабочем каталоге нет selftest.etl, проверка пропущена';
+      RowsTxt@1000000047 : TextConst 'ENU=lines %1, events %2;RUS=строк %1, событий %2';
+      DeclMissTxt@1000000048 : TextConst 'ENU=parameters %1, DECLARE lines missing %2, types not resolved %3;RUS=параметров %1, не хватает строк DECLARE %2, типов не опознано %3';
+
+    LOCAL PROCEDURE CountExpandable@152(RunNo@1000000000 : Integer) : Integer;
+    VAR
+      RunLine@1000000001 : Record 110202;
+    BEGIN
+      RunLine.RESET;
+      RunLine.SETRANGE("Run No.",RunNo);
+      // Ребра лежат в той же таблице своим типом строки: считаем СТРОКИ листинга.
+      RunLine.SETFILTER("Line Type",'<>%1',RunLine."Line Type"::Edge);
+      RunLine.SETRANGE("Can Expand",TRUE);
+      EXIT(RunLine.COUNT);
     END;
 
     LOCAL PROCEDURE WorkDir@35() : Text;
@@ -6647,23 +7165,25 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // сохраняются, затем сравниваются - и результат выкладывается в файл.
       // Страницы 110200-110202 ходят ровно теми же вызовами.
 
-      RunA := MeasureAndSave('обкатка A, 200 итераций',200);
-      RunB := MeasureAndSave('обкатка B, 400 итераций',400);
-      BuildCompare(RunA,RunB,TempCmp);
+      RunA := ProfilerMgt.MeasureAndSave('обкатка A, 200 итераций',200);
+      RunB := ProfilerMgt.MeasureAndSave('обкатка B, 400 итераций',400);
+      ProfilerMgt.BuildCompare(RunA,RunB,TempCmp);
       // Запросы читаем ДО проверок: часть из них смотрит на этот же результат.
-      QueryRows := BuildQueries(RunA,0,0,0,0,'',TempSql);
+      QueryRows := ProfilerMgt.BuildQueries(RunA,0,0,0,0,'',TempSql);
       RunChecks(RunA,RunB,TempCmp,QueryRows,Passed,TotalChecks,Report);
 
       TempBlob.Blob.CREATEOUTSTREAM(OutText,TEXTENCODING::UTF8);
       // Вердикт - ПЕРВОЙ строкой: он и есть результат обкатки, остальное - подробности.
-      OutText.WRITETEXT(STRSUBSTNO(VerdictTxt,Passed,TotalChecks) + CrLf);
+      OutText.WRITETEXT(STRSUBSTNO(VerdictTxt,Passed,TotalChecks) + ProfilerMgt.CrLf);
       OutText.WRITETEXT(Report);
       OutText.WRITETEXT('#замер А ' + FORMAT(RunA) + ', замер Б ' + FORMAT(RunB) +
-        ', строк сравнения ' + FORMAT(TempCmp.COUNT) + CrLf);
-      OutText.WRITETEXT('Status' + TabText + 'ObjId' + TabText + 'LineA' + TabText +
-        'LineB' + TabText + 'SelfA' + TabText + 'SelfB' + TabText + 'Delta' + TabText +
-        'Delta%' + TabText + 'HitsA' + TabText + 'HitsB' + TabText + 'Occ' + TabText +
-        'Line' + CrLf);
+        ', строк сравнения ' + FORMAT(TempCmp.COUNT) + ProfilerMgt.CrLf);
+      OutText.WRITETEXT('Status' + ProfilerMgt.TabText + 'ObjId' + ProfilerMgt.TabText + 'LineA' + ProfilerMgt.TabText +
+        'LineB' + ProfilerMgt.TabText + 'SelfA' + ProfilerMgt.TabText + 'SelfB' + ProfilerMgt.TabText +
+        'Delta' + ProfilerMgt.TabText +
+        'Delta%' + ProfilerMgt.TabText + 'HitsA' + ProfilerMgt.TabText + 'HitsB' + ProfilerMgt.TabText +
+        'Occ' + ProfilerMgt.TabText +
+        'Line' + ProfilerMgt.CrLf);
 
       TempCmp.RESET;
       TempCmp.SETCURRENTKEY("Delta ms");
@@ -6671,45 +7191,45 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       IF TempCmp.FINDSET THEN
         REPEAT
           OutText.WRITETEXT(
-            FORMAT(TempCmp.Status) + TabText +
-            FORMAT(TempCmp."Object ID") + TabText +
-            FORMAT(TempCmp."Line No. A") + TabText +
-            FORMAT(TempCmp."Line No. B") + TabText +
-            FORMAT(TempCmp."Self ms A") + TabText +
-            FORMAT(TempCmp."Self ms B") + TabText +
-            FORMAT(TempCmp."Delta ms") + TabText +
-            FORMAT(TempCmp."Delta %") + TabText +
-            FORMAT(TempCmp."Hits A") + TabText +
-            FORMAT(TempCmp."Hits B") + TabText +
-            FORMAT(TempCmp.Occurrence) + TabText +
-            DELCHR(TempCmp.Line,'=',TabText) + CrLf);
+            FORMAT(TempCmp.Status) + ProfilerMgt.TabText +
+            FORMAT(TempCmp."Object ID") + ProfilerMgt.TabText +
+            FORMAT(TempCmp."Line No. A") + ProfilerMgt.TabText +
+            FORMAT(TempCmp."Line No. B") + ProfilerMgt.TabText +
+            FORMAT(TempCmp."Self ms A") + ProfilerMgt.TabText +
+            FORMAT(TempCmp."Self ms B") + ProfilerMgt.TabText +
+            FORMAT(TempCmp."Delta ms") + ProfilerMgt.TabText +
+            FORMAT(TempCmp."Delta %") + ProfilerMgt.TabText +
+            FORMAT(TempCmp."Hits A") + ProfilerMgt.TabText +
+            FORMAT(TempCmp."Hits B") + ProfilerMgt.TabText +
+            FORMAT(TempCmp.Occurrence) + ProfilerMgt.TabText +
+            DELCHR(TempCmp.Line,'=',ProfilerMgt.TabText) + ProfilerMgt.CrLf);
         UNTIL TempCmp.NEXT = 0;
 
-      OutText.WRITETEXT('#каталог событий ' + GetEventCatalog + CrLf);
+      OutText.WRITETEXT('#каталог событий ' + ProfilerMgt.GetEventCatalog + ProfilerMgt.CrLf);
       // Запросы взяты из СОХРАНЁННОГО замера, а не из живого приёмника: во втором
       // прогоне записи уже в кэше NAV, и в базу он не ходит вовсе. Заодно это
       // проверяет путь "сохранили - загрузили - получили скрипт", которым идёт
       // провал по замеру.
-      OutText.WRITETEXT('#различных запросов SQL ' + FORMAT(QueryRows) + CrLf);
+      OutText.WRITETEXT('#различных запросов SQL ' + FORMAT(QueryRows) + ProfilerMgt.CrLf);
       IF TempSql.FINDSET THEN
         REPEAT
           OutText.WRITETEXT(
-            'SQL' + TabText +
-            FORMAT(TempSql.Executions) + TabText +
-            FORMAT(TempSql."Total ms") + TabText +
-            FORMAT(TempSql."Line No.") + TabText +
-            FORMAT(TempSql.Truncated) + TabText +
-            FORMAT(STRLEN(TempSql.GetStatement)) + TabText +
-            DELCHR(TempSql.GetStatement,'=',TabText) + CrLf);
+            'SQL' + ProfilerMgt.TabText +
+            FORMAT(TempSql.Executions) + ProfilerMgt.TabText +
+            FORMAT(TempSql."Total ms") + ProfilerMgt.TabText +
+            FORMAT(TempSql."Line No.") + ProfilerMgt.TabText +
+            FORMAT(TempSql.Truncated) + ProfilerMgt.TabText +
+            FORMAT(STRLEN(TempSql.GetStatement)) + ProfilerMgt.TabText +
+            DELCHR(TempSql.GetStatement,'=',ProfilerMgt.TabText) + ProfilerMgt.CrLf);
         UNTIL TempSql.NEXT = 0;
 
       // Скрипт первой строки - ровно то, что уходит в буфер обмена и в файл .sql.
       IF TempSql.FINDFIRST THEN
-        OutText.WRITETEXT('#скрипт для SSMS' + CrLf + TempSql.ScriptText + CrLf);
+        OutText.WRITETEXT('#скрипт для SSMS' + ProfilerMgt.CrLf + TempSql.ScriptText + ProfilerMgt.CrLf);
 
       // Промахи склейки - списком, а не числом: без имен строк по одному счетчику не
       // понять, что именно потерялось.
-      OutText.WRITETEXT('#мимо листинга ' + GetUnmatchedText + CrLf);
+      OutText.WRITETEXT('#мимо листинга ' + ProfilerMgt.GetUnmatchedText + ProfilerMgt.CrLf);
 
       WriteTextFile(TempBlob,COPYSTR(WorkDir + SelfTestReportName,1,250));
     END;
@@ -6729,8 +7249,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // случай, ради которого кнопка и живет, - кодюнит завели заново после обрыва, и
       // режим включения в нем уже не тот.
       CODECOVERAGELOG(TRUE,TRUE);
-      Acc := ForceStopProbe(50);
-      ForceStop;
+      Acc := ProfilerMgt.ForceStopProbe(50);
+      ProfilerMgt.ForceStop;
       CODECOVERAGEREFRESH;
       CodeCoverage.RESET;
       Before := CodeCoverage.COUNT;
@@ -6738,34 +7258,12 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // Нагрузка ПОСЛЕ выключения идет по СВОИМ строкам, которых в журнале еще нет:
       // повторив прежние, мы нарастили бы им число выполнений, а число СТРОК осталось
       // бы прежним - и проверка проходила бы, даже если журнал не погас.
-      Acc := Acc + ForceStopProbeB(50);
+      Acc := Acc + ProfilerMgt.ForceStopProbeB(50);
       CODECOVERAGEREFRESH;
       After := CodeCoverage.COUNT;
 
       Check(Passed,Total,Report,ChkForceStopTxt,(Before > 0) AND (After = Before),
         STRSUBSTNO(ForceStopTxt,Before,After));
-    END;
-
-    LOCAL PROCEDURE ForceStopProbe@156(Rounds@1000000000 : Integer) : Integer;
-    VAR
-      Index@1000000001 : Integer;
-      Acc@1000000002 : Integer;
-    BEGIN
-      FOR Index := 1 TO Rounds DO
-        Acc := Acc + Index;
-      EXIT(Acc);
-    END;
-
-    LOCAL PROCEDURE ForceStopProbeB@157(Rounds@1000000000 : Integer) : Integer;
-    VAR
-      Index@1000000001 : Integer;
-      Acc@1000000002 : Integer;
-    BEGIN
-      // Близнец предыдущей нарочно: ее строки в журнал попасть еще не успели, и если
-      // журнал не погас, они в нем появятся - вот это и ловится.
-      FOR Index := 1 TO Rounds DO
-        Acc := Acc + Index;
-      EXIT(Acc);
     END;
 
     LOCAL PROCEDURE CheckRecursionNav@154(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
@@ -6782,7 +7280,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // Прямая рекурсия долго была единственным вызовом, в который провалиться нельзя:
       // цель с собственным именем отсекалась. Строка при этом честно светилась
       // раскрываемой - раскрытие и пометка обязаны говорить одно и то же.
-      Probe.COPY(FullLine,TRUE);
+      ProfilerMgt.CopyFullLine(Probe);
       Probe.RESET;
       Probe.SETRANGE("Line Type",Probe."Line Type"::Code);
       IF Probe.FINDSET THEN
@@ -6796,10 +7294,10 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       Probe.RESET;
 
       IF Found THEN
-        Dived := NavInto(TempLine,CallText,FromEntry,0,Ret);
+        Dived := ProfilerMgt.NavInto(TempLine,CallText,FromEntry,0,Ret);
       IF Dived THEN
         // Считаем РАСКРЫТЫЕ узлы, а не строки на экране: строк тут и не будет.
-        Opened := NavCount;
+        Opened := ProfilerMgt.NavNodeCount;
 
       // Судим РАЗБОР ЦЕЛИ, а не отрисовку узла: у замера самой обкатки корень пуст -
       // ее функции платформа не зовет, точек входа нет, и раскрытое рисовать не под
@@ -6808,7 +7306,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // точки входа настоящие. Рекурсия добавляет к тому пути ровно разбор цели.
       Check(Passed,Total,Report,ChkRecNavTxt,Dived AND (Opened > 0),
         STRSUBSTNO(RecNavTxt,FromEntry,Opened));
-      NavRoot(TempLine);
+      ProfilerMgt.NavRoot(TempLine);
     END;
 
     LOCAL PROCEDURE CheckSubscriberNav@104(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
@@ -6831,11 +7329,11 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // объекте, и в тексте строки его имени нет вовсе - ровно тот случай, ради которого
       // навигация переехала с разбора текста на ребра вызова. Прогон свой, отдельный:
       // мерить надо ВСЕ объекты, иначе чужой подписчик в замер не попадет.
-      StartTrace(0,0,0,0);
+      ProfilerMgt.StartTrace(0,0,0,0);
       FOR Index := 1 TO 50 DO
-        OnSelfTestEvent(Index,Acc);
-      StopTrace;
-      BuildResult(TempLine,0,0,TRUE);
+        ProfilerMgt.OnSelfTestEvent(Index,Acc);
+      ProfilerMgt.StopTrace;
+      ProfilerMgt.BuildResult(TempLine,0,0,TRUE);
 
       // Время ПОДЪЕМА события ложится на заголовок издателя: своих строк у него нет, и
       // по номеру строки этот замер не лег бы никуда - висел бы в "замерах мимо
@@ -6846,11 +7344,11 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       TempLine.SETRANGE("Object ID",110200);
       IF TempLine.FINDSET THEN
         REPEAT
-          IF UPPERCASE(ShortName(DELCHR(TempLine.Line,'<>',' '))) = 'ONSELFTESTEVENT' THEN
+          IF UPPERCASE(ProfilerMgt.ShortName(DELCHR(TempLine.Line,'<>',' '))) = 'ONSELFTESTEVENT' THEN
             PubHits := TempLine."No. of Hits";
         UNTIL TempLine.NEXT = 0;
       TempLine.RESET;
-      GetJoinStats(MeasRows,Matched);
+      ProfilerMgt.GetJoinStats(MeasRows,Matched);
       // Судим и по промахам склейки: этот прогон меряет ВСЕ объекты, и именно тут
       // вылезала наша собственная работа, выполненная до включения журнала покрытия.
       Check(Passed,Total,Report,ChkPubTxt,(PubHits = 50) AND (MeasRows = Matched),
@@ -6859,7 +7357,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // именно не легло, а на демонстрации это единственное место, где их видно без
       // клиента.
       IF MeasRows > Matched THEN BEGIN
-        Report := Report + GetUnmatchedText + CrLf;
+        Report := Report + ProfilerMgt.GetUnmatchedText + ProfilerMgt.CrLf;
       END;
 
       // Сразу после сборки показан полный листинг, поэтому строку издателя берем прямо
@@ -6877,7 +7375,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       TempLine.RESET;
 
       IF Found THEN
-        Dived := NavInto(TempLine,CallText,FromEntry,0,PositionEntry);
+        Dived := ProfilerMgt.NavInto(TempLine,CallText,FromEntry,0,PositionEntry);
       IF Dived THEN BEGIN
         TempLine.RESET;
         TempLine.SETRANGE("Object Type",TempLine."Object Type"::CodeUnit);
@@ -6895,7 +7393,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // такого объекта был глухим: время на экране есть, а войти некуда. Отказ этого
       // рода выглядит как успех - строки собраны, здоровье зеленое, - поэтому он и
       // прожил до объекта.
-      NavRoot(TempLine);
+      ProfilerMgt.NavRoot(TempLine);
       Childless := RootChildless(TempLine);
       Check(Passed,Total,Report,ChkRootDoorTxt,Childless = 0,
         STRSUBSTNO(RootDoorTxt,Childless));
@@ -6917,12 +7415,12 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // висел на корне глухим: время видно, а войти некуда. Так устроена почти вся
       // прикладная логика: кодюнит-одиночка, в который зовут методом, и случай этот
       // куда обычнее подписчика.
-      StartTrace(0,0,0,0);
+      ProfilerMgt.StartTrace(0,0,0,0);
       FOR Index := 1 TO 50 DO
         Demo.RunPlainWork(Index,Acc);
-      StopTrace;
-      BuildResult(TempLine,0,0,TRUE);
-      NavRoot(TempLine);
+      ProfilerMgt.StopTrace;
+      ProfilerMgt.BuildResult(TempLine,0,0,TRUE);
+      ProfilerMgt.NavRoot(TempLine);
 
       TempLine.RESET;
       IF TempLine.FINDSET THEN
@@ -6959,12 +7457,12 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // намеренно: с ней пустые точки входа отсеиваются сами и объект становится
       // бездверным, а вся соль случая в том, что двери есть и они пустые. До правки под
       // объектом висели одни нули, а его миллисекунды не показывались нигде.
-      StartTrace(0,0,0,0);
+      ProfilerMgt.StartTrace(0,0,0,0);
       FOR Index := 1 TO 50 DO
         Demo.RunPlainWork(Index,Acc);
-      StopTrace;
-      BuildResult(TempLine,0,0,FALSE);
-      NavRoot(TempLine);
+      ProfilerMgt.StopTrace;
+      ProfilerMgt.BuildResult(TempLine,0,0,FALSE);
+      ProfilerMgt.NavRoot(TempLine);
 
       TempLine.RESET;
       IF TempLine.FINDSET THEN
@@ -7042,16 +7540,16 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // нет: тело на корне раскрыто только у точек входа. Проверяем щелчок целиком -
       // было пусто, стало тело, заголовок остался ОДИН. Без последнего условия правка,
       // показывающая заголовок дважды, прошла бы проверку.
-      StartTrace(0,0,0,0);
+      ProfilerMgt.StartTrace(0,0,0,0);
       FOR Index := 1 TO 50 DO
         Demo.RunPlainWork(Index,Acc);
-      StopTrace;
-      BuildResult(TempLine,0,0,TRUE);
-      NavRoot(TempLine);
+      ProfilerMgt.StopTrace;
+      ProfilerMgt.BuildResult(TempLine,0,0,TRUE);
+      ProfilerMgt.NavRoot(TempLine);
 
       HeadEntry := PlainRows(TempLine,Heads,Before);
       IF HeadEntry > 0 THEN
-        Opened := NavBody(TempLine,HeadEntry,Ret);
+        Opened := ProfilerMgt.NavBody(TempLine,HeadEntry,Ret);
       IF Opened THEN
         HeadEntry := PlainRows(TempLine,Heads,After);
 
@@ -7079,9 +7577,9 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // встал первым, а остальные ушли под свою подпись. Корнем берем сам отчет: он
       // в замере есть всегда, а времени в нем меньше, чем в таблицах под ним, - тем и
       // проверяется, что корень идет первым НЕ по времени.
-      RunDemo(200,TempLine);
-      SetRootObject(3,110200);
-      NavRoot(TempLine);
+      ProfilerMgt.RunDemo(200,TempLine);
+      ProfilerMgt.SetRootObject(3,110200);
+      ProfilerMgt.NavRoot(TempLine);
 
       Cur.COPY(TempLine,TRUE);
       Cur.RESET;
@@ -7119,7 +7617,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
 
       // Подпись раздела живет только в собранном виде. Попади она в листинг - уехала бы
       // в базу РЕБРОМ: у таблицы сохраненных строк тем же номером идет ребро вызова.
-      Cur.COPY(FullLine,TRUE);
+      ProfilerMgt.CopyFullLine(Cur);
       Cur.RESET;
       Cur.SETRANGE("Line Type",Cur."Line Type"::Section);
       InListing := Cur.COUNT;
@@ -7166,28 +7664,28 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // разделами. Сохраняем с ОДНОГО прогона два замера, с корнем и без него, и
       // спрашиваем оба: одного положительного случая мало - корень, выставленный кому
       // попало или не сброшенный от прошлой загрузки, прошел бы его точно так же.
-      RunDemo(200,TempLine);
+      ProfilerMgt.RunDemo(200,TempLine);
 
       CLEAR(ProfRun);
       ProfRun.Scope := ProfRun.Scope::"All Objects";
       ProfRun."Object Type" := ProfRun."Object Type"::Report;
       ProfRun."Object ID" := 110200;
-      RunNo := SaveRun(ProfRun);
+      RunNo := ProfilerMgt.SaveRun(ProfRun);
 
       CLEAR(ProfRun);
       ProfRun.Scope := ProfRun.Scope::"All Objects";
-      PlainNo := SaveRun(ProfRun);
+      PlainNo := ProfilerMgt.SaveRun(ProfRun);
 
-      LoadRun(RunNo,TempLine);
-      NavRoot(TempLine);
+      ProfilerMgt.LoadRun(RunNo,TempLine);
+      ProfilerMgt.NavRoot(TempLine);
       RootShape(TempLine,FirstObjID,Sections);
 
-      LoadRun(PlainNo,TempLine);
-      NavRoot(TempLine);
+      ProfilerMgt.LoadRun(PlainNo,TempLine);
+      ProfilerMgt.NavRoot(TempLine);
       RootShape(TempLine,PlainFirst,PlainSections);
 
-      DeleteRun(RunNo);
-      DeleteRun(PlainNo);
+      ProfilerMgt.DeleteRun(RunNo);
+      ProfilerMgt.DeleteRun(PlainNo);
 
       Check(Passed,Total,Report,ChkRootSavedTxt,
         (FirstObjID = 110200) AND (Sections = 1) AND (PlainSections = 0),
@@ -7212,9 +7710,9 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // Настройка убирает с корня функции, которые платформа не зовет сама. Демонстрация
       // для этого и годится: у отчета двери отработали все до одной, поэтому обычные его
       // функции обязаны уйти целиком, а точки входа - остаться.
-      RunDemo(200,TempLine);
-      SetShowPlainFuncs(FALSE);
-      NavRoot(TempLine);
+      ProfilerMgt.RunDemo(200,TempLine);
+      ProfilerMgt.SetShowPlainFuncs(FALSE);
+      ProfilerMgt.NavRoot(TempLine);
 
       Cur.COPY(TempLine,TRUE);
       Cur.RESET;
@@ -7222,10 +7720,10 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
         REPEAT
           CASE Cur."Line Type" OF
             Cur."Line Type"::Object:
-              Live := LiveDoor(Cur."Object Type",Cur."Object ID");
+              Live := ProfilerMgt.LiveDoor(Cur."Object Type",Cur."Object ID");
             Cur."Line Type"::"Trigger/Function":
               IF Live THEN
-                IF IsEntryPoint(RowFunc(Cur)) THEN
+                IF ProfilerMgt.IsEntryPoint(ProfilerMgt.RowFunc(Cur)) THEN
                   Doors := Doors + 1
                 ELSE
                   Plain := Plain + 1;
@@ -7240,13 +7738,13 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // при снятом показе - иначе под ним висели бы одни нули, а его миллисекунды не были
       // бы показаны нигде. Случай тот же, что у проверки видимой работы: двери есть,
       // подписчики событий, но в этот раз их никто не поднимал.
-      StartTrace(0,0,0,0);
+      ProfilerMgt.StartTrace(0,0,0,0);
       FOR Index := 1 TO 50 DO
         Demo.RunPlainWork(Index,Acc);
-      StopTrace;
-      BuildResult(TempLine,0,0,FALSE);
-      SetShowPlainFuncs(FALSE);
-      NavRoot(TempLine);
+      ProfilerMgt.StopTrace;
+      ProfilerMgt.BuildResult(TempLine,0,0,FALSE);
+      ProfilerMgt.SetShowPlainFuncs(FALSE);
+      ProfilerMgt.NavRoot(TempLine);
 
       Cur.COPY(TempLine,TRUE);
       Cur.RESET;
@@ -7265,7 +7763,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       Cur.RESET;
       // Возвращаем показ: следующая проверка о нашем выборе не знает, а сборка сбрасывает
       // его сама только там, где она есть.
-      SetShowPlainFuncs(TRUE);
+      ProfilerMgt.SetShowPlainFuncs(TRUE);
 
       Check(Passed,Total,Report,ChkPlainNetTxt,
         (Kids > 0) AND (ABS(ObjSelf - SumSelf) <= RollupTolerantMs),
@@ -7293,23 +7791,23 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // функции лежит в стеке всегда. Провалившись в такой вызов, заголовок показывал
       // свое время при пустом полном - число, которого не бывает. Проверяем ЭКРАН, а не
       // ребро: ребро тут ни при чем, оно честно говорит, что полного времени у него нет.
-      StartTrace(0,0,0,0);
+      ProfilerMgt.StartTrace(0,0,0,0);
       FOR Index := 1 TO 50 DO
-        Depth := Depth + Recurse(30);
-      StopTrace;
-      BuildResult(TempLine,5,110200,TRUE);
-      NavRoot(TempLine);
+        Depth := Depth + ProfilerMgt.Recurse(30);
+      ProfilerMgt.StopTrace;
+      ProfilerMgt.BuildResult(TempLine,5,110200,TRUE);
+      ProfilerMgt.NavRoot(TempLine);
 
       // Тело рекурсивной функции на корне не раскрыто - открываем щелчком по заголовку,
       // и только оттуда виден сам рекурсивный вызов.
       HeadEntry := FindViewRow(TempLine,TempLine."Line Type"::"Trigger/Function",'RECURSE(',Ignored,IgnoredNode);
       IF HeadEntry > 0 THEN
-        Opened := NavBody(TempLine,HeadEntry,Ret);
+        Opened := ProfilerMgt.NavBody(TempLine,HeadEntry,Ret);
       IF Opened THEN BEGIN
         CallEntry := FindViewRow(TempLine,TempLine."Line Type"::Code,'RECURSE(LEVEL',CallText,CallNode);
         Opened := FALSE;
         IF CallEntry > 0 THEN
-          Opened := NavInto(TempLine,CallText,CallEntry,CallNode,Ret);
+          Opened := ProfilerMgt.NavInto(TempLine,CallText,CallEntry,CallNode,Ret);
       END;
 
       IF Opened THEN BEGIN
@@ -7410,20 +7908,20 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       //
       // Свой курсор по ребрам обязателен: и провал, и GetEdge ходят по тому же буферу
       // своими отборами, и общий курсор они бы сбили на первом же вызове.
-      Edge.COPY(EdgeBuf,TRUE);
+      ProfilerMgt.CopyEdgeBuf(Edge);
       Edge.RESET;
       Caller.COPY(TempLine,TRUE);
       Callee.COPY(TempLine,TRUE);
 
       TypeNo := Caller."Object Type"::CodeUnit;
-      SubToken := FORMAT(TypeNo) + TokenSep + FORMAT(DemoSubscriberID) + TokenSep;
+      SubToken := FORMAT(TypeNo) + ProfilerMgt.TokenSep + FORMAT(DemoSubscriberID) + ProfilerMgt.TokenSep;
 
       Caller.RESET;
       Caller.SETRANGE("Line Type",Caller."Line Type"::Code);
       IF Caller.FINDSET THEN
         REPEAT
           IF Caller."Can Expand" THEN
-            IF STRPOS(NavTargetsOf(Caller."Entry No.",Caller.Line),SubToken) > 0 THEN
+            IF STRPOS(ProfilerMgt.NavTargetsOf(Caller."Entry No.",Caller.Line),SubToken) > 0 THEN
               Cross := Cross + 1;
         UNTIL Caller.NEXT = 0;
       Caller.RESET;
@@ -7436,7 +7934,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
           Caller.SETCURRENTKEY("Object Type","Object ID","Line No.");
           Caller.SETRANGE("Object Type",Edge."Object Type");
           Caller.SETRANGE("Object ID",Edge."Object ID");
-          Caller.SETRANGE("Line No.",Edge."Line No." + LineShift);
+          Caller.SETRANGE("Line No.",Edge."Line No." + ProfilerMgt.LineShiftValue);
           Caller.SETRANGE("Line Type",Caller."Line Type"::Code);
           IF Caller.FINDFIRST THEN BEGIN
             // Заголовок вызванной функции: имя в ребре голое, в листинге - подпись
@@ -7448,8 +7946,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
             Callee.SETRANGE("Line Type",Callee."Line Type"::"Trigger/Function");
             IF Callee.FINDSET THEN
               REPEAT
-                IF UPPERCASE(ShortName(Callee.Line)) = CalleeShort THEN
-                  IF GetEdge(Caller,Callee,Calls,TotalCalls,EdgeTotal,EdgeSelf,Recursive) THEN
+                IF UPPERCASE(ProfilerMgt.ShortName(Callee.Line)) = CalleeShort THEN
+                  IF ProfilerMgt.GetEdge(Caller,Callee,Calls,TotalCalls,EdgeTotal,EdgeSelf,Recursive) THEN
                     IF Calls > 0 THEN BEGIN
                       Hints := Hints + 1;
                       IF EdgeTotal > WorstMs THEN
@@ -7463,7 +7961,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
 
       Check(Passed,Total,Report,ChkCrossObjTxt,Cross > 0,STRSUBSTNO(CrossObjTxt,Cross));
       Check(Passed,Total,Report,ChkLoadedHintTxt,(Hints > 0) AND (WorstMs > 0),
-        STRSUBSTNO(LoadedHintTxt,Hints,FORMAT(ROUND(WorstMs,MsRounding))));
+        STRSUBSTNO(LoadedHintTxt,Hints,FORMAT(ROUND(WorstMs,ProfilerMgt.MsRounding))));
     END;
 
     LOCAL PROCEDURE DemoSubscriberID@222() : Integer;
@@ -7514,11 +8012,13 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // с сотнями миллисекунд, а в строке объекта единицы. Пока полное время объекта
       // равнялось своему, строка объекта показывала МЕНЬШЕ строк под собой, и прочитать
       // по ней, куда ушло время, было нельзя.
-      StartTrace(0,0,0,0);
+      // Вызывающий здесь - САМ этот объект: цикл крутится тут, а работа лежит в 110201.
+      // Раньше им был главный кодюнит, потому что обкатка жила в нем же.
+      ProfilerMgt.StartTrace(0,0,0,0);
       FOR Index := 1 TO 200 DO
         Demo.RunPlainWork(Index,Acc);
-      StopTrace;
-      BuildResult(TempLine,0,0,TRUE);
+      ProfilerMgt.StopTrace;
+      ProfilerMgt.BuildResult(TempLine,0,0,TRUE);
 
       Obj.COPY(TempLine,TRUE);
       Obj.RESET;
@@ -7535,7 +8035,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
             Above := Above + 1;
           IF Obj."Object Type" = Obj."Object Type"::CodeUnit THEN
             CASE Obj."Object ID" OF
-              110200:
+              110202:
                 BEGIN
                   CallerTotal := Obj."Total ms";
                   CallerSelf := Obj."Self ms";
@@ -7565,7 +8065,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       RunLine.SETRANGE("Line Type",RunLine."Line Type"::Object);
       IF RunLine.FINDFIRST THEN
         SavedTotal := RunLine."Total ms";
-      LoadRun(RunNo,TempLine);
+      ProfilerMgt.LoadRun(RunNo,TempLine);
       TempLine.RESET;
       TempLine.SETRANGE("Line Type",TempLine."Line Type"::Object);
       IF TempLine.FINDFIRST THEN
@@ -7644,8 +8144,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // Мерим ДЕМОНСТРАЦИЮ: у нее есть точки входа с настоящими вызовами - раскрытие
       // проверяется на настоящем дереве, а не на заголовках объекта без двери, которые
       // корень показывает и сам. Строк берем немного: проверяем раскрытие, а не нагрузку.
-      RunDemo(200,TempLine);
-      NavRoot(TempLine);
+      ProfilerMgt.RunDemo(200,TempLine);
+      ProfilerMgt.NavRoot(TempLine);
       TempLine.RESET;
       TempLine.SETRANGE("Line Type",TempLine."Line Type"::Code);
       IF TempLine.FINDSET THEN
@@ -7668,7 +8168,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
             Marked := Marked + ' | ' + DELCHR(LineTxt[Index],'<>',' ');
         END;
         IF Opened < 2 THEN
-          IF NavInto(TempLine,LineTxt[Index],Entry[Index],0,Ret) THEN BEGIN
+          IF ProfilerMgt.NavInto(TempLine,LineTxt[Index],Entry[Index],0,Ret) THEN BEGIN
             Opened := Opened + 1;
             OpenEntry[Opened] := Entry[Index];
             IF Opened = 1 THEN BEGIN
@@ -7695,8 +8195,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       TempLine.RESET;
 
       IF Opened = 2 THEN BEGIN
-        Node := NavNodeOf(OpenEntry[1],0);
-        IF NavClose(TempLine,Node,Ret) THEN;
+        Node := ProfilerMgt.NavNodeOf(OpenEntry[1],0);
+        IF ProfilerMgt.NavClose(TempLine,Node,Ret) THEN;
       END;
       Left := OpenNodes(TempLine);
 
@@ -7710,7 +8210,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // Самая тяжелая строка КАЖДОГО дерева: ровно одна отметка на узел, и стоит она на
       // строке с наибольшим своим временем. Дерево без времени чемпиона не получает,
       // поэтому такие узлы в счет не идут вовсе.
-      FOR Node := 0 TO NavCount DO BEGIN
+      FOR Node := 0 TO ProfilerMgt.NavNodeCount DO BEGIN
         BestMs := 0;
         MarkMs := 0;
         InNode := 0;
@@ -7736,7 +8236,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       Check(Passed,Total,Report,ChkHeaviestTxt,(Marks > 0) AND (BadMark = 0),
         STRSUBSTNO(HeaviestTxt,Marks,BadMark));
 
-      NavRoot(TempLine);
+      ProfilerMgt.NavRoot(TempLine);
 
       // Тот же вопрос СОХРАНЕННОМУ замеру: стрелка обязана вести хоть куда-то. Признак
       // раскрытия ставят ребра, они сохраняются вместе с ним, а вот сами ребра живут
@@ -7744,8 +8244,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // ЭТОЙ нагрузке, а не на той, что сохраняет обкатка ниже: там один кодюнит с
       // прямыми вызовами, где каждый вызов виден и в тексте строки, - опасного случая,
       // издателя события с подписчиком в ЧУЖОМ объекте, там не бывает вовсе.
-      RunNo := SaveRun(ProfRun);
-      LoadRun(RunNo,TempLine);
+      RunNo := ProfilerMgt.SaveRun(ProfRun);
+      ProfilerMgt.LoadRun(RunNo,TempLine);
 
       // Ребра уезжают в базу теми же строками, что и листинг, и обратно в листинг
       // попадать не должны. У ребра нет текста кода, зато есть время и имя ВЫЗЫВАЮЩЕЙ
@@ -7770,7 +8270,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
         REPEAT
           IF TempLine."Can Expand" THEN BEGIN
             Arrows := Arrows + 1;
-            IF NavTargetsOf(TempLine."Entry No.",TempLine.Line) = '' THEN
+            IF ProfilerMgt.NavTargetsOf(TempLine."Entry No.",TempLine.Line) = '' THEN
               Dead := Dead + 1;
           END;
         UNTIL TempLine.NEXT = 0;
@@ -7781,9 +8281,10 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // Стрелки живы не сами по себе, а потому что доехали РЕБРА: без них загруженный
       // замер терял и раскрытие, и подсказку "отсюда вызывали". Считаем их в буфере -
       // он и есть единственный источник ребер что для живого замера, что для этого.
-      EdgeBuf.RESET;
-      Check(Passed,Total,Report,ChkLoadedEdgesTxt,EdgeBuf.COUNT > 0,
-        STRSUBSTNO(LoadedEdgesTxt,EdgeBuf.COUNT));
+      ProfilerMgt.CopyEdgeBuf(Edge);
+      Edge.RESET;
+      Check(Passed,Total,Report,ChkLoadedEdgesTxt,Edge.COUNT > 0,
+        STRSUBSTNO(LoadedEdgesTxt,Edge.COUNT));
       CheckLoadedEdges(TempLine,Passed,Total,Report);
 
       // Замер сохраняют и ПОВЕРХ загруженного - кнопка на странице одна на оба случая.
@@ -7795,9 +8296,9 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // повторного круга ровно тот же счет и ни одного безымянного.
       Nameless := 0;
       EdgesFirst := RunEdges(RunNo,Nameless);
-      AgainNo := SaveRun(ProfRun);
+      AgainNo := ProfilerMgt.SaveRun(ProfRun);
       EdgesAgain := RunEdges(AgainNo,Nameless);
-      DeleteRun(AgainNo);
+      ProfilerMgt.DeleteRun(AgainNo);
       Check(Passed,Total,Report,ChkResaveTxt,
         (EdgesFirst > 0) AND (EdgesAgain = EdgesFirst) AND (Nameless = 0),
         STRSUBSTNO(ResaveTxt,EdgesFirst,EdgesAgain,Nameless));
@@ -7806,7 +8307,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // собирает - его собирает страница следом, своим ResetNav. Здесь тот же путь, и
       // отметки обязаны появиться снова: иначе у загруженного замера они держались бы
       // на честном слове страницы, а такие слова тут уже дважды оказывались неправдой.
-      NavRoot(TempLine);
+      ProfilerMgt.NavRoot(TempLine);
       TempLine.RESET;
       TempLine.SETRANGE(Heaviest,TRUE);
       LoadedMarks := TempLine.COUNT;
@@ -7820,19 +8321,23 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // прошел бы на сломанном коде. Улика - ТИП строки, а не пустой текст: за строкой
       // кода платформа шлет каркасные строки, текста у них нет тоже. Свои курсоры на
       // обход обязательны - раскрытие пересобирает вид, по которому идет отбор.
-      Edge.COPY(EdgeBuf,TRUE);
+      ProfilerMgt.CopyEdgeBuf(Edge);
       Head.COPY(TempLine,TRUE);
       Head.RESET;
       Head.SETRANGE("Line Type",Head."Line Type"::"Trigger/Function");
       IF Head.FINDSET THEN
         REPEAT
-          IF (BodyEntry = 0) AND HeaderHasBody(Head) AND (NOT IsEntryPoint(RowFunc(Head))) THEN BEGIN
+          IF (BodyEntry = 0) AND ProfilerMgt.HeaderHasBody(Head) AND
+             (NOT ProfilerMgt.IsEntryPoint(ProfilerMgt.RowFunc(Head)))
+          THEN BEGIN
             Edge.RESET;
             Edge.SETRANGE("Object Type",Head."Object Type");
             Edge.SETRANGE("Object ID",Head."Object ID");
             IF Edge.FINDSET THEN
               REPEAT
-                IF UPPERCASE(ShortName(Edge."Function Name")) = UPPERCASE(ShortName(RowFunc(Head))) THEN
+                IF UPPERCASE(ProfilerMgt.ShortName(Edge."Function Name")) =
+                   UPPERCASE(ProfilerMgt.ShortName(ProfilerMgt.RowFunc(Head)))
+                THEN
                   BodyEntry := Head."Source Entry No.";
               UNTIL (BodyEntry <> 0) OR (Edge.NEXT = 0);
           END;
@@ -7841,7 +8346,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       Head.RESET;
 
       IF BodyEntry > 0 THEN
-        BodyOpen := NavBody(TempLine,BodyEntry,Ret);
+        BodyOpen := ProfilerMgt.NavBody(TempLine,BodyEntry,Ret);
       IF BodyOpen THEN BEGIN
         TempLine.RESET;
         IF TempLine.FINDSET THEN
@@ -7880,13 +8385,13 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // Table 110206 по полю Description, а ключей у таблицы всего два - по Entry No. и
       // по Group Code. Значит на самой дорогой строке обязан прозвучать не общий совет
       // "вынесите чтение из цикла", а точная причина: под этот отбор ключа нет.
-      RunDemo(200,TempLine);
+      ProfilerMgt.RunDemo(200,TempLine);
       TempLine.RESET;
       TempLine.SETRANGE("Line Type",TempLine."Line Type"::Code);
       TempLine.SETFILTER("SQL Count",'>0');
       IF TempLine.FINDSET THEN
         REPEAT
-          IF KeyAdvice(TempLine,Advice) THEN BEGIN
+          IF ProfilerMgt.KeyAdvice(TempLine,Advice) THEN BEGIN
             WithAdvice := WithAdvice + 1;
             IF STRPOS(UPPERCASE(Advice),'DESCRIPTION') > 0 THEN
               NamedField := NamedField + 1;
@@ -7905,9 +8410,9 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       TempLine.SETRANGE("Line Type",TempLine."Line Type"::"Trigger/Function");
       TempLine.SETFILTER("SQL Count",'>0');
       IF TempLine.FINDFIRST THEN BEGIN
-        FunctionLineRange(TempLine,FromLine,ToLine);
-        FuncRows := BuildQueries(0,TempLine."Object Type",TempLine."Object ID",FromLine,ToLine,'',TempSql);
-        ObjRows := BuildQueries(0,TempLine."Object Type",TempLine."Object ID",0,0,'',TempSql);
+        ProfilerMgt.FunctionLineRange(TempLine,FromLine,ToLine);
+        FuncRows := ProfilerMgt.BuildQueries(0,TempLine."Object Type",TempLine."Object ID",FromLine,ToLine,'',TempSql);
+        ObjRows := ProfilerMgt.BuildQueries(0,TempLine."Object Type",TempLine."Object ID",0,0,'',TempSql);
       END;
       TempLine.RESET;
       Check(Passed,Total,Report,ChkSqlScopeTxt,(FuncRows > 0) AND (FuncRows < ObjRows),
@@ -7935,11 +8440,11 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       Setup.FetchOnce;
       IF Setup."Capture SQL Params" THEN
         Check(Passed,Total,Report,ChkParamsTxt,(WithParams > 0) AND (WithValues = WithParams),
-          STRSUBSTNO(ParamsTxt,WithValues,WithParams) + ' ' + GetParamNote + Missed)
+          STRSUBSTNO(ParamsTxt,WithValues,WithParams) + ' ' + ProfilerMgt.GetParamNote + Missed)
       ELSE
         Check(Passed,Total,Report,ChkParamsTxt,TRUE,ParamsOffTxt);
 
-      NavRoot(TempLine);
+      ProfilerMgt.NavRoot(TempLine);
     END;
 
     LOCAL PROCEDURE OpenNodes@108(VAR TempLine@1000000000 : TEMPORARY Record 110200) : Integer;
@@ -7964,11 +8469,6 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       EXIT(Count);
     END;
 
-    [Integration]
-    LOCAL PROCEDURE OnSelfTestEvent@105(Seed@1000000000 : Integer;VAR Acc@1000000001 : Decimal);
-    BEGIN
-    END;
-
     LOCAL PROCEDURE Check@63(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text;CheckName@1000000003 : Text;Ok@1000000004 : Boolean;Detail@1000000005 : Text);
     BEGIN
       Total := Total + 1;
@@ -7980,7 +8480,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       Report := Report + ' ' + CheckName;
       IF Detail <> '' THEN
         Report := Report + ' - ' + Detail;
-      Report := Report + CrLf;
+      Report := Report + ProfilerMgt.CrLf;
     END;
 
     LOCAL PROCEDURE RunChecks@64(RunA@1000000000 : Integer;RunB@1000000018 : Integer;VAR TempCmp@1000000001 : TEMPORARY Record 110203;QueryRows@1000000002 : Integer;VAR Passed@1000000003 : Integer;VAR Total@1000000004 : Integer;VAR Report@1000000005 : Text);
@@ -8010,10 +8510,10 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
     BEGIN
       // Обкатка обязана судить сама. Раньше она выкладывала TSV, который надо было
       // читать глазами, - а значит, поломка замечалась только если на нее смотрели.
-      GetHealth(HealthText,Severity);
-      Check(Passed,Total,Report,ChkHealthTxt,Severity < HealthBroken,HealthText);
+      ProfilerMgt.GetHealth(HealthText,Severity);
+      Check(Passed,Total,Report,ChkHealthTxt,Severity < ProfilerMgt.HealthBroken,HealthText);
 
-      GetJoinStats(MeasRows,Matched);
+      ProfilerMgt.GetJoinStats(MeasRows,Matched);
       Check(Passed,Total,Report,ChkJoinTxt,MeasRows = Matched,
         STRSUBSTNO(RowsTxt,MeasRows,Matched));
 
@@ -8021,7 +8521,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // потому единственный, который обкатка обязана судить не по совпадению чисел, а
       // по СОВПАДЕНИЮ ТЕКСТОВ. Требуем и перевеса, и запаса голосов: одно-два
       // совпадения бывают случайными на повторяющихся операторах.
-      GetLineShift(Shift,VotesFor,VotesAgainst);
+      ProfilerMgt.GetLineShift(Shift,VotesFor,VotesAgainst);
       Check(Passed,Total,Report,ChkShiftTxt,
         (Shift = 1) AND (VotesFor > VotesAgainst) AND (VotesFor >= MinShiftVotes),
         STRSUBSTNO(ShiftTxt,Shift,VotesFor,VotesAgainst));
@@ -8157,11 +8657,11 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
 
       // Чистые функции проверяются на выдуманных данных: живой прогон для них не нужен.
       Check(Passed,Total,Report,ChkMatchKeyTxt,
-        MakeMatchKey('OnRun','   IF  Customer.FINDFIRST THEN ') =
-        MakeMatchKey('onrun','if customer.findfirst then'),'');
+        ProfilerMgt.MakeMatchKey('OnRun','   IF  Customer.FINDFIRST THEN ') =
+        ProfilerMgt.MakeMatchKey('onrun','if customer.findfirst then'),'');
       Check(Passed,Total,Report,ChkCodePartTxt,
-        (DELCHR(CodePart('Customer.FINDSET; // тут был FINDFIRST'),'>',' ') = 'Customer.FINDSET;') AND
-        (CodePart('//FINDSET') = ''),'');
+        (DELCHR(ProfilerMgt.CodePart('Customer.FINDSET; // тут был FINDFIRST'),'>',' ') = 'Customer.FINDSET;') AND
+        (ProfilerMgt.CodePart('//FINDSET') = ''),'');
 
       // Блок DECLARE: проверяем машинку, а не конкретные типы - у каждого параметра
       // должна появиться своя строка, и ни один тип не должен остаться неопознанным.
@@ -8261,147 +8761,16 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // не пишет, а тащить в репозиторий 180 мегабайт незачем.
       EtlPath := WorkDir + SelfTestTraceName;
       IF NOT FileMgt.ServerFileExists(EtlPath) THEN BEGIN
-        Report := Report + EtlSkippedTxt + CrLf;
+        Report := Report + EtlSkippedTxt + ProfilerMgt.CrLf;
         EXIT;
       END;
 
-      LoadEtlFile(EtlPath,TempLine,0,0);
+      ProfilerMgt.LoadEtlFile(EtlPath,TempLine,0,0);
       TempLine.RESET;
       TempLine.SETRANGE("Line Type",TempLine."Line Type"::Code);
       TempLine.SETRANGE(Measured,TRUE);
       Rows := TempLine.COUNT;
       Check(Passed,Total,Report,ChkEtlTxt,Rows > 0,FORMAT(Rows));
-    END;
-
-    LOCAL PROCEDURE CharOf@68(Code@1000000000 : Integer) : Char;
-    VAR
-      Ch@1000000001 : Char;
-    BEGIN
-      // Символ в C/AL получают только присваиванием кода: литерала символа в языке нет.
-      Ch := Code;
-      EXIT(Ch);
-    END;
-
-    LOCAL PROCEDURE MeasureAndSave@52(Caption@1000000000 : Text[100];Iterations@1000000001 : Integer) : Integer;
-    VAR
-      TempLine@1000000002 : TEMPORARY Record 110200;
-      ProfRun@1000000003 : Record 110201;
-      Customer@1000000004 : Record 18;
-      Index@1000000005 : Integer;
-      Total@1000000006 : Integer;
-      StartedAt@1000000007 : DateTime;
-      Depth@1000000008 : Integer;
-    BEGIN
-      StartedAt := CURRENTDATETIME;
-      StartTrace(0,0,0,0);
-
-      FOR Index := 1 TO Iterations DO BEGIN
-        // Отбор меняется на каждой итерации НАМЕРЕННО: с постоянным отбором записи
-        // отдаёт кэш NAV, обращений к базе нет вовсе, и проверять на таком прогоне
-        // сбор запросов SQL нечем.
-        Customer.RESET;
-        Customer.SETFILTER("No.",'>%1',FORMAT(Index));
-        IF Customer.FINDFIRST THEN
-          Customer.CALCFIELDS(Balance);
-        Total := Total + Index;
-        // Рекурсия в нагрузке нужна не для красоты: полное время строки, которая зовет
-        // саму себя, внешний виток содержит ЦЕЛИКОМ, и складывая витки строка получала
-        // время, кратное глубине. Без такого места в прогоне проверять это нечем.
-        Depth := Depth + Recurse(30);
-      END;
-
-      StopTrace;
-      BuildResult(TempLine,5,110200,TRUE);
-
-      ProfRun.Description := Caption;
-      ProfRun.Started := StartedAt;
-      ProfRun.Ended := CURRENTDATETIME;
-      ProfRun.Scope := ProfRun.Scope::"Single Object";
-      ProfRun."Object Type" := ProfRun."Object Type"::CodeUnit;
-      ProfRun."Object ID" := 110200;
-      ProfRun."Session Scope" := ProfRun."Session Scope"::"This Session";
-      ProfRun."Session ID" := SESSIONID;
-      EXIT(SaveRun(ProfRun));
-    END;
-
-    LOCAL PROCEDURE Recurse@153(Level@1000000000 : Integer) : Integer;
-    BEGIN
-      IF Level <= 0 THEN
-        EXIT(0);
-      EXIT(1 + Recurse(Level - 1));
-    END;
-
-    [External]
-    PROCEDURE RunDemo@69(Rows@1000000000 : Integer;VAR TempLine@1000000001 : TEMPORARY Record 110200) GrandSelf : Decimal;
-    VAR
-      DemoReport@1000000002 : Report 110200;
-    BEGIN
-      // Демонстрационный замер: инструмент сам готовит данные, сам гоняет по ним отчет
-      // и сам его меряет. Кроме собственных таблиц профайлера ничего не трогает,
-      // поэтому запускается на любой базе, где нет ни наших данных, ни чужого сценария.
-      IF Rows <= 0 THEN
-        Rows := 7000;
-      FillDemoData(Rows);
-
-      // Меряем ВСЕ объекты, а не один отчет: подписчик восьмого шага лежит в отдельном
-      // кодюните 110201, и при отборе по отчету его не было бы ни в замере, ни в листинге -
-      // а он и есть то, ради чего шаг заведен.
-      StartTrace(0,0,0,0);
-      DemoReport.SetLoad(2000,2500,200,200000,2500);
-      DemoReport.RUNMODAL;
-      StopTrace;
-
-      GrandSelf := BuildResult(TempLine,0,0,TRUE);
-      ClearDemoData;
-    END;
-
-    LOCAL PROCEDURE FillDemoData@70(Rows@1000000000 : Integer);
-    VAR
-      DemoLine@1000000001 : Record 110206;
-      DemoRef@1000000002 : Record 110207;
-      Index@1000000003 : Integer;
-      Slot@1000000004 : Integer;
-    BEGIN
-      // Код группы и код справочника идут парой: правильный проход отчета держит их
-      // в массиве на двадцать мест, и обращаться в базу построчно ему незачем.
-      ClearDemoData;
-
-      FOR Index := 1 TO 20 DO BEGIN
-        DemoRef.INIT;
-        DemoRef."Ref Code" := DemoCode('REF',Index);
-        DemoRef.Name := 'Позиция справочника ' + FORMAT(Index);
-        DemoRef.Factor := 1 + Index / 100;
-        DemoRef.INSERT;
-      END;
-
-      FOR Index := 1 TO Rows DO BEGIN
-        Slot := 1 + (Index MOD 20);
-        DemoLine.INIT;
-        DemoLine."Entry No." := Index;
-        DemoLine."Group Code" := DemoCode('GRP',Slot);
-        DemoLine."Ref Code" := DemoCode('REF',Slot);
-        DemoLine.Description := 'Строка документа ' + FORMAT(Index);
-        DemoLine.Quantity := 1 + (Index MOD 7);
-        DemoLine.Amount := 100 + (Index MOD 500);
-        DemoLine."Posting Date" := TODAY - (Index MOD 90);
-        DemoLine.INSERT;
-      END;
-    END;
-
-    LOCAL PROCEDURE ClearDemoData@71();
-    VAR
-      DemoLine@1000000000 : Record 110206;
-      DemoRef@1000000001 : Record 110207;
-    BEGIN
-      DemoLine.DELETEALL;
-      DemoRef.DELETEALL;
-    END;
-
-    LOCAL PROCEDURE DemoCode@72(Prefix@1000000000 : Code[10];Slot@1000000001 : Integer) : Code[20];
-    BEGIN
-      IF Slot < 10 THEN
-        EXIT(Prefix + '0' + FORMAT(Slot));
-      EXIT(Prefix + FORMAT(Slot));
     END;
 
     LOCAL PROCEDURE WriteTextFile@25(VAR TempBlob@1000000000 : TEMPORARY Record 99008535;OutPath@1000000001 : Text[250]);
@@ -8430,156 +8799,12 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // которая там есть, поэтому разметкой служит функция.
     END;
 
-    LOCAL PROCEDURE MaxNavNodes@176() : Integer;
-    BEGIN
-      // Сколько мест вызова держим раскрытыми разом. Число берем у САМОГО массива:
-      // границу C/AL пишет литералом, и держать рядом второй литерал - значит однажды
-      // поправить один из двух. Расширяя NavTargets, расширить и его спутников - NavFrom,
-      // NavParent, NavBodyOnly, Closed с NewNo в DropNode, Seen в OpenNodes: их границы
-      // C/AL тоже берет литералом, и отсюда до них не дотянуться.
-      EXIT(ARRAYLEN(NavTargets));
-    END;
-
-    LOCAL PROCEDURE MaxNavDepth@177() : Integer;
-    BEGIN
-      // Предел спуска при сборке вида: раскрытая функция может звать ту самую строку,
-      // из которой ее раскрыли, и обход ходил бы по кругу. Глубже, чем открытых узлов,
-      // дерево не бывает - потому тут не свое число, а то же самое.
-      EXIT(MaxNavNodes);
-    END;
-
-    LOCAL PROCEDURE MaxOrphansShown@179() : Integer;
-    BEGIN
-      // Сколько промахов склейки печатать поименно. Список нужен, чтобы понять, ЧТО
-      // потерялось; на тысяче строк он этого уже не объясняет.
-      EXIT(15);
-    END;
-
-    LOCAL PROCEDURE MaxCalibrationRows@180() : Integer;
-    BEGIN
-      // Сколько замеров опрашиваем на калибровке смещения строк. Голосование сходится
-      // на первых десятках, а проход идет по всей трассе: на большом замере это
-      // единственное место, где платят за уже известное.
-      EXIT(300);
-    END;
-
-    LOCAL PROCEDURE MinCalibrationKeyLen@181() : Integer;
-    BEGIN
-      // Короткие тексты в голосовании не участвуют: EXIT и END встречаются в объекте
-      // десятками и совпадут где угодно.
-      EXIT(8);
-    END;
-
-    LOCAL PROCEDURE PollTraceMs@182() : Integer;
-    BEGIN
-      // Шаг ожидания, пока поток событий не пойдет. Мельче - и сам цикл станет
-      // заметной нагрузкой, крупнее - и короткий сценарий успеет отработать в тишине.
-      EXIT(20);
-    END;
-
-    LOCAL PROCEDURE RingBufferDrainMs@183() : Integer;
-    BEGIN
-      // Ждем рассылку кольцевого буфера: задержка у сеанса Extended Events - секунда,
-      // ждем с запасом, иначе на коротком замере значения выходят пустыми.
-      EXIT(1800);
-    END;
-
-    LOCAL PROCEDURE SqlCommandTimeoutSec@184() : Integer;
-    BEGIN
-      // Предел на команду без чтения - заведение и снятие сеанса Extended Events.
-      EXIT(30);
-    END;
-
-    LOCAL PROCEDURE SqlReadTimeoutSec@185() : Integer;
-    BEGIN
-      // Предел на чтение кольцевого буфера: разбор XML на стороне сервера дороже самой
-      // команды, и предела на команду ему бывает мало.
-      EXIT(60);
-    END;
-
-    LOCAL PROCEDURE MediumHotPctShare@186() : Integer;
-    BEGIN
-      // Доля от порога горячей строки, с которой подсказка получает СРЕДНЮЮ важность:
-      // на средней требования мягче ровно вдвое.
-      EXIT(2);
-    END;
-
-    LOCAL PROCEDURE MediumHotMsFactor@187() : Integer;
-    BEGIN
-      // Время, которое поднимает подсказку до средней важности само по себе, без доли:
-      // строка в десять порогов дорога и в большом прогоне, где доля ее мала.
-      EXIT(10);
-    END;
-
-    LOCAL PROCEDURE SqlPerHitsShare@188() : Integer;
-    BEGIN
-      // Запрос хотя бы на каждое пятое выполнение: реже - это уже разовая работа,
-      // которую кэш записей платформы и так свел к нескольким обращениям.
-      EXIT(5);
-    END;
-
-    LOCAL PROCEDURE ClientCoreFirstTable@189() : Integer;
-    BEGIN
-      // Объекты от десяти миллионов - ядро подсистем клиента: правка этого диапазона
-      // нашей лицензией не покрыта, и совет по нему остается сигналом, а не заданием.
-      EXIT(10000000);
-    END;
-
-    LOCAL PROCEDURE MsRounding@190() : Decimal;
-    BEGIN
-      // Три знака после запятой - ровно столько, сколько показывают колонки времени.
-      EXIT(0.001);
-    END;
-
-    LOCAL PROCEDURE PctRounding@191() : Decimal;
-    BEGIN
-      // Сотые доли процента: на них уже видна разница между соседними строками.
-      EXIT(0.01);
-    END;
-
-    LOCAL PROCEDURE DeltaPctRounding@192() : Decimal;
-    BEGIN
-      // У дельты сравнения знаков меньше: сотые доли процента на глаз неразличимы, а
-      // колонка от лишних знаков становится нечитаемой.
-      EXIT(0.1);
-    END;
-
-    LOCAL PROCEDURE IsCSideObjectType@193(ObjType@1000000000 : Integer) : Boolean;
-    BEGIN
-      // Типы объектов C/SIDE идут подряд от TableData до Query. Все, что вне этого
-      // ряда, - кадр платформы или незнакомое имя: листинга у него нет и быть не может.
-      EXIT((ObjType >= 0) AND (ObjType <= 9));
-    END;
-
-    [External]
-    PROCEDURE HealthClean@194() : Integer;
-    BEGIN
-      // Уровни здоровья замера. Они СРАВНИМЫ по возрастанию: на этом держится и подъем
-      // итогового уровня по худшему замечанию, и раскраска панели итогов на странице.
-      // Чисто: замечаний нет вовсе.
-      EXIT(0);
-    END;
-
-    [External]
-    PROCEDURE HealthNoted@195() : Integer;
-    BEGIN
-      // Есть на что посмотреть: замеру верить можно, но с оговоркой.
-      EXIT(1);
-    END;
-
-    [External]
-    PROCEDURE HealthBroken@196() : Integer;
-    BEGIN
-      // Замеру верить нельзя.
-      EXIT(2);
-    END;
-
     LOCAL PROCEDURE HalfShownMs@197() : Decimal;
     BEGIN
       // Половина последнего показанного знака. Сравнивать времена строже, чем их
       // показывают, значит ловить округление, а не расхождение. Половину СЧИТАЕМ:
       // 0,0005, написанное рядом с 0,001, - то же число, записанное второй раз.
-      EXIT(MsRounding / 2);
+      EXIT(ProfilerMgt.MsRounding / 2);
     END;
 
     LOCAL PROCEDURE RollupTolerantMs@198() : Decimal;
@@ -8615,57 +8840,6 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       EXIT(3);
     END;
 
-    LOCAL PROCEDURE CrText@204() : Text[1];
-    BEGIN
-      // Коды 13, 10, 9 и 39 - это ASCII, величина не наша. Имя тут нужно не чтобы ее
-      // менять, а чтобы не заводить ее заново в каждой второй процедуре: пар
-      // "переменная плюс присваивание кода" в объекте было десять.
-      EXIT(FORMAT(CharOf(13)));
-    END;
-
-    LOCAL PROCEDURE LfText@205() : Text[1];
-    BEGIN
-      EXIT(FORMAT(CharOf(10)));
-    END;
-
-    LOCAL PROCEDURE CrLf@206() : Text[2];
-    BEGIN
-      EXIT(CrText + LfText);
-    END;
-
-    LOCAL PROCEDURE TabText@207() : Text[1];
-    BEGIN
-      EXIT(FORMAT(CharOf(9)));
-    END;
-
-    LOCAL PROCEDURE AposText@208() : Text[1];
-    BEGIN
-      // Апостроф: в скрипте T-SQL им обрамлены строковые литералы, а внутри литерала
-      // C/AL его не написать.
-      EXIT(FORMAT(CharOf(39)));
-    END;
-
-    LOCAL PROCEDURE ListFence@209() : Text[1];
-    BEGIN
-      // Черта, которой обрамлен КАЖДЫЙ элемент списка-строки - и первый, и последний.
-      // Списки эти собирают в одном месте, а спрашивают в другом: искать элемент вместе
-      // с обеими чертами и значит искать его целиком, а не хвостом чужого имени.
-      EXIT('|');
-    END;
-
-    LOCAL PROCEDURE TokenSep@210() : Text[1];
-    BEGIN
-      // Разделитель внутри метки цели: тип, код объекта и имя функции.
-      EXIT(':');
-    END;
-
-    LOCAL PROCEDURE AnyObjectToken@211() : Text[4];
-    BEGIN
-      // Метка цели "любой объект": в нее сводится вызов, у которого объект по тексту
-      // строки не опознан, и по ней же цель ищут по одному короткому имени функции.
-      EXIT('*' + TokenSep + '*' + TokenSep);
-    END;
-
     LOCAL PROCEDURE SelfTestReportName@212() : Text[30];
     BEGIN
       // Имя знает не только объект: шаг onsite/05 ищет в рабочем каталоге ровно его и
@@ -8678,74 +8852,6 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // Файл трассировки для проверки разбора .etl: кладут его туда руками, поэтому
       // имя обязано быть постоянным.
       EXIT('selftest.etl');
-    END;
-
-    BEGIN
-    {
-      Построчный профайлер C/AL для Microsoft Dynamics NAV 2018.
-      Объекты 110200-110207 - части одного инструмента: страницы, таблицы,
-      демонстрационный отчёт и кодюниты.
-
-      Автор:    Дмитрий Данильцев
-      Создан:   14.08.2026
-      Исходник: https://github.com/Lekray/al-line-profiler
-
-      История правок ведётся в системе контроля версий, а не здесь.
-    }
-    END.
-  }
-}
-
-OBJECT Codeunit 110201 AL Profiler Demo Subscriber
-{
-  OBJECT-PROPERTIES
-  {
-    Date=20.08.26;
-    Time=12:00:00;
-    Modified=Yes;
-    Version List=ALProfiler;
-  }
-  PROPERTIES
-  {
-    OnRun=BEGIN
-          END;
-
-  }
-  CODE
-  {
-
-    [EventSubscriber(Codeunit,110200,OnSelfTestEvent)]
-    LOCAL PROCEDURE OnSelfTestEvent@2(Seed@1000000000 : Integer;VAR Acc@1000000001 : Decimal);
-    VAR
-      Index@1000000002 : Integer;
-    BEGIN
-      // Подписчик обкатки: она проверяет, что провал со строки издателя доходит сюда,
-      // в ЧУЖОЙ объект, - по ребрам вызова, а не по тексту строки.
-      FOR Index := 1 TO 20 DO
-        Acc := Acc + (Seed + Index) MOD 5;
-    END;
-
-    PROCEDURE RunPlainWork@3(Seed@1000000000 : Integer;VAR Acc@1000000001 : Decimal);
-    VAR
-      Index@1000000002 : Integer;
-    BEGIN
-      // Обычная процедура с обычным именем: ее зовут напрямую, платформа о ней не знает
-      // ничего. Ради нее объект и попадает в замер без единой точки входа - тот самый
-      // случай, на котором корень оставался глухим.
-      FOR Index := 1 TO 5 DO
-        Acc := Acc + Seed / (Index + 1);
-    END;
-
-    [EventSubscriber(Report,110200,OnDemoEvent)]
-    LOCAL PROCEDURE OnDemoEvent@1(Seed@1000000000 : Integer;VAR Acc@1000000001 : Decimal);
-    VAR
-      Index@1000000002 : Integer;
-    BEGIN
-      // Подписчик демонстрационного отчета. Живет ОТДЕЛЬНО от издателя намеренно: в
-      // строке издателя его имени нет вовсе, и найти, куда ушло время, можно только
-      // проваливанием по ребрам вызова - ровно так же, как на живой логике клиента.
-      FOR Index := 1 TO 20 DO
-        Acc := Acc + (Seed + Index) MOD 7;
     END;
 
     BEGIN
