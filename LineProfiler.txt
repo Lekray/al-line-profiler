@@ -2640,6 +2640,8 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       PlainHiddenTxt@1000000189 : TextConst 'ENU=plain functions under objects with a live door %1, entry points %2;RUS=обычных функций под объектами с живой дверью %1, точек входа %2';
       ChkPlainNetTxt@1000000190 : TextConst 'ENU=where no entry point ran the plain functions stay even when they are switched off;RUS=где не отработала ни одна точка входа, обычные функции остаются и при снятом показе';
       PlainNetTxt@1000000191 : TextConst 'ENU=object self %1, sum under it %2, children %3;RUS=свое объекта %1, сумма под ним %2, потомков %3';
+      ChkRootSavedTxt@1000000194 : TextConst 'ENU=the root object survives saving and comes back with the run;RUS=корневой объект переживает сохранение и возвращается вместе с замером';
+      RootSavedTxt@1000000195 : TextConst 'ENU=with a root - first object %1, headings %2. Without a root - first object %3, headings %4;RUS=с корнем - первый объект %1, подписей %2. Без корня - первый объект %3, подписей %4';
       OtherObjTxt@1000000179 : TextConst 'ENU=Other objects (%1);RUS=Остальные объекты (%1)';
       RootMissingTxt@1000000180 : TextConst 'ENU=The root object did not run in this measurement;RUS=Корневой объект в этом замере не выполнялся';
       SectionHintTxt@1000000181 : TextConst 'ENU=Self time adds up honestly. Full time is not shown here - summing it over objects would count mutual calls twice.;RUS=Свое время складывается честно, а полное здесь не показано - складывая его по объектам, взаимные вызовы посчитали бы дважды.';
@@ -4981,7 +4983,6 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // Приемник умеет сузить только по ОДНОЙ строке, а с заголовка функции нужен
       // диапазон - берем весь объект и отсеиваем лишнее здесь.
       FilterLine := -1;
-      // DD 18.08.2026 LineProfiler >>
       // Обратный перевод в координаты трассировки - тем же смещением, что и прямой
       // ниже. Зашитая единица при смещении 0 просила у приемника соседнюю строку;
       // тот отдавал запросы не той строки, а отбор ниже выбрасывал и их - список
@@ -4989,7 +4990,6 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       IF FromLine > 0 THEN
         IF FromLine = ToLine THEN
           FilterLine := FromLine - LineShift;
-      // DD 18.08.2026 LineProfiler <<
 
       Rows := Receiver.SelectQueries(ObjType,FilterID,FilterLine,FunctionName);
       FOR Index := 0 TO Rows - 1 DO
@@ -5362,7 +5362,6 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       TempLine.DELETEALL;
       RunLine.RESET;
       RunLine.SETRANGE("Run No.",RunNo);
-      // DD 22.08.2026 LineProfiler >>
       // Сюда идет ЛИСТИНГ, а ребра забирает LoadEdges в свой буфер: лежат они в тех же
       // сохраненных строках своим типом. Попав в листинг, ребро встает строкой БЕЗ
       // текста - время есть, кода нет - и всплывает под своей вызывающей функцией, стоит
@@ -5370,7 +5369,6 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // поле стоит вызывающая сторона. У живого замера такого нет вовсе - там ребра из
       // листинга и не выходят, - поэтому отказ был виден только на загруженном.
       RunLine.SETFILTER("Line Type",'<>%1',RunLine."Line Type"::Edge);
-      // DD 22.08.2026 LineProfiler <<
       IF NOT RunLine.FINDSET THEN
         EXIT;
       REPEAT
@@ -6289,7 +6287,6 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       // Имя вызванной функции в ребре - голое, из события ETW; в листинге у заголовка
       // стоит подпись целиком. Поэтому сводим по координатам объекта и КОРОТКОМУ имени.
       CalleeShort := UPPERCASE(ShortName(Callee.Line));
-      // DD 18.08.2026 LineProfiler >>
       // Номер строки в ребре лежит так, как его прислал ETW, - на LineShift меньше
       // листингового; тот же сдвиг, что и при сборке замеров, и зашивать его нельзя.
       // Рядом, в провале по ребрам, стоит уже снятое смещение, а здесь оставалась
@@ -6300,7 +6297,6 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       EdgeBuf.SETRANGE("Object Type",Caller."Object Type");
       EdgeBuf.SETRANGE("Object ID",Caller."Object ID");
       EdgeBuf.SETRANGE("Line No.",Caller."Line No." - LineShift);
-      // DD 18.08.2026 LineProfiler <<
       IF EdgeBuf.FINDSET THEN
         REPEAT
           IF (EdgeBuf."Callee Object Type" = Callee."Object Type") AND
@@ -7130,6 +7126,72 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       Cur.RESET;
       Check(Passed,Total,Report,ChkSectionKeptOutTxt,InListing = 0,
         STRSUBSTNO(SectionKeptOutTxt,InListing));
+    END;
+
+    LOCAL PROCEDURE RootShape@235(VAR TempLine@1000000000 : TEMPORARY Record 110200;VAR FirstObjID@1000000001 : Integer;VAR Sections@1000000002 : Integer);
+    VAR
+      Cur@1000000003 : TEMPORARY Record 110200;
+    BEGIN
+      // Две приметы корня на готовом виде: какой объект стоит первым и есть ли подпись
+      // раздела. Судим по ВИДУ, а не по замыслу: его и видит человек.
+      FirstObjID := 0;
+      Sections := 0;
+      Cur.COPY(TempLine,TRUE);
+      Cur.RESET;
+      IF Cur.FINDSET THEN
+        REPEAT
+          CASE Cur."Line Type" OF
+            Cur."Line Type"::Object:
+              IF FirstObjID = 0 THEN
+                FirstObjID := Cur."Object ID";
+            Cur."Line Type"::Section:
+              Sections := Sections + 1;
+          END;
+        UNTIL Cur.NEXT = 0;
+    END;
+
+    LOCAL PROCEDURE CheckRootSaved@234(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
+    VAR
+      TempLine@1000000003 : TEMPORARY Record 110200;
+      ProfRun@1000000004 : Record 110201;
+      RunNo@1000000005 : Integer;
+      PlainNo@1000000006 : Integer;
+      FirstObjID@1000000007 : Integer;
+      Sections@1000000008 : Integer;
+      PlainFirst@1000000009 : Integer;
+      PlainSections@1000000010 : Integer;
+    BEGIN
+      // Корень уезжает в базу полем объекта замера и обязан вернуться вместе с ним: иначе
+      // загруженный замер открылся бы листинговым порядком, а тот же замер минуту назад -
+      // разделами. Сохраняем с ОДНОГО прогона два замера, с корнем и без него, и
+      // спрашиваем оба: одного положительного случая мало - корень, выставленный кому
+      // попало или не сброшенный от прошлой загрузки, прошел бы его точно так же.
+      RunDemo(200,TempLine);
+
+      CLEAR(ProfRun);
+      ProfRun.Scope := ProfRun.Scope::"All Objects";
+      ProfRun."Object Type" := ProfRun."Object Type"::Report;
+      ProfRun."Object ID" := 110200;
+      RunNo := SaveRun(ProfRun);
+
+      CLEAR(ProfRun);
+      ProfRun.Scope := ProfRun.Scope::"All Objects";
+      PlainNo := SaveRun(ProfRun);
+
+      LoadRun(RunNo,TempLine);
+      NavRoot(TempLine);
+      RootShape(TempLine,FirstObjID,Sections);
+
+      LoadRun(PlainNo,TempLine);
+      NavRoot(TempLine);
+      RootShape(TempLine,PlainFirst,PlainSections);
+
+      DeleteRun(RunNo);
+      DeleteRun(PlainNo);
+
+      Check(Passed,Total,Report,ChkRootSavedTxt,
+        (FirstObjID = 110200) AND (Sections = 1) AND (PlainSections = 0),
+        STRSUBSTNO(RootSavedTxt,FirstObjID,Sections,PlainFirst,PlainSections));
     END;
 
     LOCAL PROCEDURE CheckPlainFuncs@233(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
@@ -7977,6 +8039,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       CheckBodyNav(Passed,Total,Report);
       CheckRecursionTotal(Passed,Total,Report);
       CheckRootSection(Passed,Total,Report);
+      CheckRootSaved(Passed,Total,Report);
       CheckPlainFuncs(Passed,Total,Report);
       CheckTreeNav(Passed,Total,Report);
       CheckKeyAdvice(Passed,Total,Report);
@@ -8938,8 +9001,13 @@ OBJECT Page 110200 AL Line Profiler
                                  TargetObjectID := ProfRun."Object ID";
                                  TargetObjectName := ObjectNameOf(TargetObjectType,TargetObjectID);
                                  SessionScope := ProfRun."Session Scope";
-                                 TargetSessionID := ProfRun."Session ID";
-                                 TargetSessionUser := SessionUserOf(TargetSessionID);
+                                 // Сеанс НЕ восстанавливаем: сохранение кладет в это поле
+                                 // свой SESSIONID - сеанс ТОГО, КТО СОХРАНЯЛ, а не того,
+                                 // чью работу мерили. Подставив его в шапку, мы назвали бы
+                                 // измеренным чужой сеанс. Область по сессиям при этом
+                                 // верна - ее сохранение не трогает.
+                                 TargetSessionID := 0;
+                                 TargetSessionUser := '';
                                  RefreshVisibility;
                                  // Показан чужой замер, а не только что снятый: единственная
                                  // отметка об этом - описание в итогах, поэтому раскрываем их.
