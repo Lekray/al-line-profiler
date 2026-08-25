@@ -17,15 +17,30 @@
     Ключ -Previous заставляет сравнивать с конкретным пакетом вместо delivered.txt -
     нужен, когда база сравнения ещё не заведена или уехало что-то другое.
 
-.PARAMETER Mail
-    Собрать пакет ПИСЬМОМ: zip с объектами, APPLY.txt, CHANGES.txt и манифестом, а на
-    отправку - его тело в base64. Нужен там, где вложений не принимают вовсе.
-    БЕЗ этого ключа собирается то, что уезжает обычно: ОДИН голый файл
-    out\send\LineProfiler.cp866.txt, который и прикладывают к заявке.
+.PARAMETER NoZip
+    НЕ сжимать нагрузку перед кодированием. По умолчанию она сжимается: текст выходит
+    втрое короче и укладывается в одно письмо, тогда как несжатый уезжает двумя.
+    Распаковщику на C/AL архив не нужен - он собирает любой файл, - но на той стороне
+    прибавляется шаг: сперва разархивировать, потом импортировать. Этот ключ нужен там,
+    где лишний шаг дороже длины письма.
+
+.PARAMETER Plain
+    Чистый base64: ни нашей шапки, ни меток '|', ни деления на части. Нужен, когда
+    принимающая сторона разбирает текст СВОИМ средством, а не Codeunit 110207.
+    Пояснение и контрольная сумма ложатся в out\read, внутрь потока не попадая.
 
 .PARAMETER ObjectsOnly
-    Прежнее имя того, что стало умолчанием. Ничего не меняет и ничего не портит -
-    оставлен, чтобы прежняя команда не падала на неизвестном ключе.
+    Отдать голый cp866 БЕЗ кодирования - когда файл кладут на диск, а не в заявку.
+    В out\send тогда лежит сам LineProfiler.cp866.txt.
+
+.PARAMETER Full
+    Прежний БОЛЬШОЙ пакет: zip с объектами, APPLY.txt, CHANGES.txt и манифестом, а
+    сверху base64. Нужен для полной поставки вместе со скриптами и приёмником, а не
+    для обычной отправки изменённых объектов.
+
+.PARAMETER Mail
+    Прежнее имя того, что стало умолчанием. Ничего не меняет - оставлен, чтобы прежняя
+    команда не падала на неизвестном ключе.
 
 .PARAMETER Previous
     Пакет, с которым сравнивать, вместо delivered.txt.
@@ -63,15 +78,15 @@
 
 .EXAMPLE
     pwsh scripts/New-DeltaPackage.ps1
-    Один файл out\send\LineProfiler.cp866.txt - изменённые объекты, то,
-    что уезжает на объект. Больше в out\send нет ничего: читаемая копия и инструкция
-    по применению ложатся в out\read и рядом с отправляемым не лежат никогда.
+    То, что уезжает на объект: base64 изменённых объектов. В нагрузке ТОЛЬКО файл
+    LineProfiler.cp866.txt - ни архива, ни APPLY.txt, ни манифеста рядом с ним нет.
+    Читаемая копия, сам cp866 и инструкция по применению ложатся в out\read и
+    рядом с отправляемым не лежат никогда.
 
 .EXAMPLE
-    pwsh scripts/New-DeltaPackage.ps1 -Mail
-    Архив с объектами, APPLY.txt, CHANGES.txt и манифестом - и сразу тело письма, которым
-    он уезжает: почта контура вложений не принимает. Письма ложатся в out\send, сам
-    архив - в out\read для сверки.
+    pwsh scripts/New-DeltaPackage.ps1 -NoZip
+    То же, но без сжатия: распаковщик отдаёт сразу готовый к импорту файл, зато текст
+    втрое длиннее и режется на два письма.
 
 .EXAMPLE
     pwsh scripts/New-DeltaPackage.ps1 -Record
@@ -81,6 +96,9 @@
 param(
     [string] $Previous,
     [string] $OutDir,
+    [switch] $NoZip,
+    [switch] $Plain,
+    [switch] $Full,
     [switch] $Mail,
     [switch] $ObjectsOnly,
     [switch] $Record,
@@ -311,8 +329,8 @@ $tmpDoc = Join-Path $env:TEMP ('lp-doc-' + [guid]::NewGuid().ToString('N').Subst
 $body = [IO.File]::ReadAllText($tmpDoc, [Text.UTF8Encoding]::new($false))
 Remove-Item $tmpDoc -Force
 
-# --- то, что уезжает на объект: ОДИН файл ------------------------------------
-if (-not $Mail) {
+# --- то, что уезжает на объект ------------------------------------------------
+if (-not $Full) {
     # Отправляемый файл лежит ОДИН, в собственном каталоге и под ОДНИМ И ТЕМ ЖЕ именем.
     # Пока соседями по out\ были вчерашняя дельта и utf8-близнец "для чтения", выбор
     # делался глазами по имени - и однажды уехал не тот файл. Каталоги чистятся при
@@ -339,23 +357,57 @@ if (-not $Mail) {
     & (Join-Path $PSScriptRoot 'convert-for-cside.ps1') -TaskFile $txt | Out-Null
     $made = Join-Path $read ("LineProfiler-changed-$stamp.cp866.txt")
     if (-not (Test-Path $made)) { throw 'не собрался cp866' }
-    $cp = Join-Path $send 'LineProfiler.cp866.txt'
+    # Имя нагрузки - это то имя, под каким файл ляжет на той стороне: распаковщик берёт
+    # его строкой #NAME, а внутри base64 имени нет вовсе. Поэтому переименовываем ДО
+    # кодирования, а не после.
+    $cp = Join-Path $read 'LineProfiler.cp866.txt'
     Move-Item -LiteralPath $made -Destination $cp -Force
 
-    # Сторож на само правило: если в send оказалось не одно, отправлять снова наугад.
-    $inSend = @(Get-ChildItem -LiteralPath $send -Force)
-    if ($inSend.Count -ne 1) { throw ('в out\send файлов ' + $inSend.Count + ', а должен быть ровно один') }
+    if ($ObjectsOnly) {
+        # Голый файл: его кладут на диск, а не в заявку.
+        $bare = Join-Path $send 'LineProfiler.cp866.txt'
+        Move-Item -LiteralPath $cp -Destination $bare -Force
+        $cp = $bare
+    } else {
+        # В пакет уезжает РОВНО ЭТОТ файл и ничего больше: ни читаемой копии, ни
+        # инструкции, ни манифеста. Всё прочее остаётся в out\read.
+        $enc = @{ Path = $cp; OutDir = $send; PartChars = $PartChars }
+        # Архив по умолчанию: несжатый текст не влезает в одно письмо, а второй кусок
+        # в полторы тысячи байт - лишний повод собрать не в том порядке.
+        if (-not $NoZip) { $enc['Zip'] = $true }
+        if ($Plain) { $enc['Plain'] = $true }
+        & (Join-Path $PSScriptRoot 'ConvertTo-MailBase64.ps1') @enc
+        # -Plain кладёт рядом с потоком пояснение с суммами. В send ему не место:
+        # правило этого каталога - отправлять всё, что тут лежит.
+        @(Get-ChildItem -LiteralPath $send -Filter '*.b64.txt' -File) |
+            ForEach-Object { Move-Item -LiteralPath $_.FullName -Destination $read -Force }
+    }
+
+    # Сторож на само правило: пусто в send - отправлять нечего, а лишнее там опаснее
+    # недостающего.
+    $inSend = @(Get-ChildItem -LiteralPath $send -Force | Sort-Object Name)
+    if ($inSend.Count -lt 1) { throw ('в out\send пусто - собирать было нечего') }
+    if ($ObjectsOnly -and ($inSend.Count -ne 1)) {
+        throw ('в out\send файлов ' + $inSend.Count + ', а должен быть ровно один')
+    }
 
     # Инструкция рядом с файлом не лежит - его отправляют одного, - но и пропасть она не
     # должна: импорт таблицы тянет синхронизацию схемы, и знать об этом принимающая
     # сторона обязана ДО того, как C/SIDE спросит. Кладём в out\read, к читаемой копии.
     $applyPath = Join-Path $read 'APPLY.txt'
-    [IO.File]::WriteAllLines($applyPath, (Get-ApplyText -Take $take -ImportPath 'LineProfiler.cp866.txt' -DllSent $false), [Text.UTF8Encoding]::new($true))
+    # Путь называем таким, каким его увидит импортирующий: из архива файл сперва достают.
+    $importAs = if ($ObjectsOnly -or $NoZip) { 'LineProfiler.cp866.txt' }
+                else { 'LineProfiler.cp866.txt (достать из архива, который отдал распаковщик)' }
+    [IO.File]::WriteAllLines($applyPath, (Get-ApplyText -Take $take -ImportPath $importAs -DllSent $false), [Text.UTF8Encoding]::new($true))
 
     Write-Host ''
     Write-Host 'ИТОГ' -ForegroundColor Green
-    Step ('ОТПРАВЛЯТЬ: ' + $cp + "   {0:N0} байт" -f (Get-Item $cp).Length)
-    Step ('в этом каталоге он единственный, и имя у него всегда одно и то же')
+    Step ('ОТПРАВЛЯТЬ: всё из ' + $send + ', файлов ' + $inSend.Count)
+    foreach ($f in $inSend) { Step ('  ' + $f.Name + "   {0:N0} байт" -f $f.Length) }
+    if (-not $ObjectsOnly) {
+        Step ('в нагрузке только LineProfiler.cp866.txt' + $(if ($NoZip) { ', без архива' } else { ', завёрнутый в архив' }))
+        Step ('сам cp866: ' + $cp + "   {0:N0} байт" -f (Get-Item $cp).Length)
+    }
     Step ('для чтения: ' + $txt + "   {0:N0} байт, UTF-8" -f (Get-Item $txt).Length)
     Step ('как применить: ' + $applyPath)
     $tablesSent = @($take | Where-Object { $_ -like 'Table *' })
@@ -367,7 +419,7 @@ if (-not $Mail) {
     exit 0
 }
 
-# --- пакет -------------------------------------------------------------------
+# --- прежний БОЛЬШОЙ пакет: объекты, APPLY.txt, CHANGES.txt, манифест ---------
 $stage = Join-Path $env:TEMP ('lp-delta-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Path $stage | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $stage 'objects') | Out-Null
