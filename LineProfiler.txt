@@ -3189,7 +3189,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       EXIT(STRPOS(ListingKey,TraceKey) = 1);
     END;
 
-    LOCAL PROCEDURE ListingTextAt@159(ObjType@1000000000 : Integer;ObjID@1000000001 : Integer;LineNo@1000000002 : Integer) : Text[250];
+    LOCAL PROCEDURE ListingTextAt@159(ObjType@1000000000 : Integer;ObjID@1000000001 : Integer;LineNo@1000000002 : Integer) Listing : Text[250];
     VAR
       CodeCoverage@1000000003 : Record 2000000049;
     BEGIN
@@ -3200,7 +3200,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       CodeCoverage.SETRANGE("Object ID",ObjID);
       CodeCoverage.SETRANGE("Line No.",LineNo);
       IF CodeCoverage.FINDFIRST THEN
-        EXIT(NormalizeText(COPYSTR(CodeCoverage.Line,1,250)));
+        EXIT(NormalizeText(COPYSTR(CodeCoverage.Line,1,MAXSTRLEN(Listing))));
       EXIT('');
     END;
 
@@ -4481,7 +4481,7 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       Pos := STRPOS(Statement,' SELECT @@');
       IF Pos = 0 THEN
         EXIT(Statement);
-      EXIT(COPYSTR(DELCHR(COPYSTR(Statement,1,Pos - 1),'>',' '),1,250));
+      EXIT(COPYSTR(DELCHR(COPYSTR(Statement,1,Pos - 1),'>',' '),1,MAXSTRLEN(Statement)));
     END;
 
     [External]
@@ -5881,6 +5881,21 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       EXIT(STRPOS(LiveDoorObjs,ListFence + FORMAT(ObjType) + TokenSep + FORMAT(ObjID) + ListFence) > 0);
     END;
 
+    LOCAL PROCEDURE BelowSection@241(ObjType@1000000000 : Integer;ObjID@1000000001 : Integer) : Boolean;
+    BEGIN
+      // Ниже подписи "Остальные объекты" лежит СВОД, а не разбор: туда смотрят, чтобы
+      // понять, куда ушло время МИМО корня, и прятать там обычную функцию нельзя. У
+      // чужого объекта двери чаще всего не поднимались вовсе, а работала процедура, в
+      // которую вошли вызовом: спрятав ее, оставляем объект с миллисекундами и пустотой
+      // под ним - тот самый отказ, ради которого функция со временем и стала видна.
+      // Галка остается за КОРНЕМ: там она и заведена - рядом с дверьми обычная функция
+      // читается как вторая дверь, а разбирают подробно именно корень.
+      // Корня нет - нет и подписи, делить нечего, и галка действует на все подряд.
+      IF RootObjID = 0 THEN
+        EXIT(FALSE);
+      EXIT((ObjType <> RootObjType) OR (ObjID <> RootObjID));
+    END;
+
     LOCAL PROCEDURE Ran@166(VAR Line@1000000000 : Record 110200) : Boolean;
     BEGIN
       // "Отработала" - это любой след, а не только время. Выполнения дает журнал
@@ -6247,9 +6262,11 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
             // времени той двери, из которой её позвали. Отступаем там, где у объекта не
             // отработала ни одна дверь: иначе под ним остались бы одни нули, а то и вовсе
             // ничего. Дойти до самой функции это не мешает - провал со строки вызова цел.
+            // Ниже подписи раздела галка не действует вовсе - довод у BelowSection.
             IF NOT ShowPlainFuncs THEN
-              IF LiveDoor(Line."Object Type",Line."Object ID") THEN
-                EXIT(FALSE);
+              IF NOT BelowSection(Line."Object Type",Line."Object ID") THEN
+                IF LiveDoor(Line."Object Type",Line."Object ID") THEN
+                  EXIT(FALSE);
         END;
         // По настройке на экране остается либо весь список точек входа, либо только те,
         // из которых ушли вглубь.
@@ -6280,20 +6297,24 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
     PROCEDURE IsEntryPoint@85(FuncName@1000000000 : Text[250]) : Boolean;
     VAR
       Short@1000000001 : Text[250];
-      Third@1000000002 : Text[1];
+      AfterPrefix@1000000002 : Text[1];
+      Prefix@1000000003 : Text[30];
     BEGIN
       // Точка входа - то, что зовёт сама платформа. В журнале покрытия триггер от
       // обычной процедуры ничем не отличается, кроме имени: у триггеров DataItem оно
       // вида "Step1Scan - OnAfterGetRecord()", у прочих начинается с On и заглавной.
-      IF STRPOS(FuncName,' - On') > 0 THEN
+      // Длину приставки считаем, а не пишем числом: написанное числом, оно разъедется
+      // с самим словом при первой же его правке, и молча.
+      Prefix := 'On';
+      IF STRPOS(FuncName,' - ' + Prefix) > 0 THEN
         EXIT(TRUE);
       Short := ShortName(FuncName);
-      IF STRLEN(Short) < 3 THEN
+      IF STRLEN(Short) <= STRLEN(Prefix) THEN
         EXIT(FALSE);
-      IF COPYSTR(Short,1,2) <> 'On' THEN
+      IF COPYSTR(Short,1,STRLEN(Prefix)) <> Prefix THEN
         EXIT(FALSE);
-      Third := COPYSTR(Short,3,1);
-      EXIT(Third = UPPERCASE(Third));
+      AfterPrefix := COPYSTR(Short,STRLEN(Prefix) + 1,1);
+      EXIT(AfterPrefix = UPPERCASE(AfterPrefix));
     END;
 
     [External]
@@ -6309,16 +6330,18 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
     VAR
       Pos@1000000001 : Integer;
       Name@1000000002 : Text[250];
+      Sep@1000000003 : Text[10];
     BEGIN
       // Из "Step1Scan - OnAfterGetRecord()" и "SlotOf(CodeValue : Code) : Integer"
       // нужно голое имя: по нему ищется вызов в тексте строки.
+      Sep := ' - ';
       Name := FuncName;
       Pos := STRPOS(Name,'(');
       IF Pos > 0 THEN
         Name := COPYSTR(Name,1,Pos - 1);
-      Pos := STRPOS(Name,' - ');
+      Pos := STRPOS(Name,Sep);
       IF Pos > 0 THEN
-        Name := COPYSTR(Name,Pos + 3);
+        Name := COPYSTR(Name,Pos + STRLEN(Sep));
       EXIT(DELCHR(Name,'<>',' '));
     END;
 
@@ -6494,11 +6517,11 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
     END;
 
     [External]
-    PROCEDURE MakeMatchKey@48(FunctionName@1000000000 : Text[250];LineText@1000000001 : Text[250]) : Text[250];
+    PROCEDURE MakeMatchKey@48(FunctionName@1000000000 : Text[250];LineText@1000000001 : Text[250]) Key : Text[250];
     BEGIN
       // Функция в ключе обязательна: один и тот же оператор встречается в объекте
       // десятки раз, и без функции повторы перемешались бы между собой.
-      EXIT(COPYSTR(NormalizeText(FunctionName) + '|' + NormalizeText(LineText),1,250));
+      EXIT(COPYSTR(NormalizeText(FunctionName) + '|' + NormalizeText(LineText),1,MAXSTRLEN(Key)));
     END;
 
     LOCAL PROCEDURE NormalizeText@49(Source@1000000000 : Text[250]) : Text[250];
@@ -6580,14 +6603,14 @@ OBJECT Codeunit 110200 AL Line Profiler Mgt.
       END;
 
       StopTrace;
-      BuildResult(TempLine,5,110200,TRUE);
+      BuildResult(TempLine,TempLine."Object Type"::CodeUnit,CODEUNIT::"AL Line Profiler Mgt.",TRUE);
 
       ProfRun.Description := Caption;
       ProfRun.Started := StartedAt;
       ProfRun.Ended := CURRENTDATETIME;
       ProfRun.Scope := ProfRun.Scope::"Single Object";
       ProfRun."Object Type" := ProfRun."Object Type"::CodeUnit;
-      ProfRun."Object ID" := 110200;
+      ProfRun."Object ID" := CODEUNIT::"AL Line Profiler Mgt.";
       ProfRun."Session Scope" := ProfRun."Session Scope"::"This Session";
       ProfRun."Session ID" := SESSIONID;
       EXIT(SaveRun(ProfRun));
@@ -7058,6 +7081,8 @@ OBJECT Codeunit 110202 AL Profiler Self Test
       PlainHiddenTxt@1000000189 : TextConst 'ENU=plain functions under objects with a live door %1, entry points %2;RUS=обычных функций под объектами с живой дверью %1, точек входа %2';
       ChkPlainNetTxt@1000000190 : TextConst 'ENU=where no entry point ran the plain functions stay even when they are switched off;RUS=где не отработала ни одна точка входа, обычные функции остаются и при снятом показе';
       PlainNetTxt@1000000191 : TextConst 'ENU=object self %1, sum under it %2, children %3;RUS=свое объекта %1, сумма под ним %2, потомков %3';
+      ChkPlainSectionTxt@1000000196 : TextConst 'ENU=below the section caption plain functions stay even when they are switched off;RUS=ниже подписи раздела обычные функции остаются и при снятом показе';
+      PlainSectionTxt@1000000197 : TextConst 'ENU=plain functions below the section %1, at the root %2;RUS=обычных функций ниже раздела %1, у корня %2';
       ChkRootSavedTxt@1000000194 : TextConst 'ENU=the root object survives saving and comes back with the run;RUS=корневой объект переживает сохранение и возвращается вместе с замером';
       RootSavedTxt@1000000195 : TextConst 'ENU=with a root - first object %1, headings %2. Without a root - first object %3, headings %4;RUS=с корнем - первый объект %1, подписей %2. Без корня - первый объект %3, подписей %4';
       PassedTxt@1000000032 : TextConst 'ENU=PASSED;RUS=ПРОЙДЕНО';
@@ -7160,13 +7185,18 @@ OBJECT Codeunit 110202 AL Profiler Self Test
       Passed@1000000018 : Integer;
       TotalChecks@1000000019 : Integer;
       Report@1000000020 : Text;
+      ReportPath@1000000021 : Text[250];
+      LoadA@1000000022 : Integer;
+      LoadB@1000000023 : Integer;
     BEGIN
       // Обкатка всей цепочки без клиента: два прогона с разной нагрузкой, оба
       // сохраняются, затем сравниваются - и результат выкладывается в файл.
       // Страницы 110200-110202 ходят ровно теми же вызовами.
 
-      RunA := ProfilerMgt.MeasureAndSave('обкатка A, 200 итераций',200);
-      RunB := ProfilerMgt.MeasureAndSave('обкатка B, 400 итераций',400);
+      LoadA := 200;
+      LoadB := 400;
+      RunA := ProfilerMgt.MeasureAndSave(STRSUBSTNO('обкатка A, %1 итераций',LoadA),LoadA);
+      RunB := ProfilerMgt.MeasureAndSave(STRSUBSTNO('обкатка B, %1 итераций',LoadB),LoadB);
       ProfilerMgt.BuildCompare(RunA,RunB,TempCmp);
       // Запросы читаем ДО проверок: часть из них смотрит на этот же результат.
       QueryRows := ProfilerMgt.BuildQueries(RunA,0,0,0,0,'',TempSql);
@@ -7231,7 +7261,8 @@ OBJECT Codeunit 110202 AL Profiler Self Test
       // понять, что именно потерялось.
       OutText.WRITETEXT('#мимо листинга ' + ProfilerMgt.GetUnmatchedText + ProfilerMgt.CrLf);
 
-      WriteTextFile(TempBlob,COPYSTR(WorkDir + SelfTestReportName,1,250));
+      ReportPath := COPYSTR(WorkDir + SelfTestReportName,1,MAXSTRLEN(ReportPath));
+      WriteTextFile(TempBlob,ReportPath);
     END;
 
     LOCAL PROCEDURE CheckForceStop@155(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
@@ -7341,7 +7372,7 @@ OBJECT Codeunit 110202 AL Profiler Self Test
       TempLine.RESET;
       TempLine.SETRANGE("Line Type",TempLine."Line Type"::"Trigger/Function");
       TempLine.SETRANGE("Object Type",TempLine."Object Type"::CodeUnit);
-      TempLine.SETRANGE("Object ID",110200);
+      TempLine.SETRANGE("Object ID",CODEUNIT::"AL Line Profiler Mgt.");
       IF TempLine.FINDSET THEN
         REPEAT
           IF UPPERCASE(ProfilerMgt.ShortName(DELCHR(TempLine.Line,'<>',' '))) = 'ONSELFTESTEVENT' THEN
@@ -7379,7 +7410,7 @@ OBJECT Codeunit 110202 AL Profiler Self Test
       IF Dived THEN BEGIN
         TempLine.RESET;
         TempLine.SETRANGE("Object Type",TempLine."Object Type"::CodeUnit);
-        TempLine.SETRANGE("Object ID",110201);
+        TempLine.SETRANGE("Object ID",DemoSubscriberID);
         SubLines := TempLine.COUNT;
         TempLine.RESET;
       END;
@@ -7427,7 +7458,7 @@ OBJECT Codeunit 110202 AL Profiler Self Test
         REPEAT
           IF TempLine."Line Type" = TempLine."Line Type"::Object THEN
             Seen := (TempLine."Object Type" = TempLine."Object Type"::CodeUnit) AND
-                    (TempLine."Object ID" = 110201)
+                    (TempLine."Object ID" = DemoSubscriberID)
           ELSE
             IF Seen THEN
               Kids := Kids + 1;
@@ -7475,7 +7506,7 @@ OBJECT Codeunit 110202 AL Profiler Self Test
           PrevHead := TempLine."Line Type" = TempLine."Line Type"::"Trigger/Function";
           IF TempLine."Line Type" = TempLine."Line Type"::Object THEN BEGIN
             Seen := (TempLine."Object Type" = TempLine."Object Type"::CodeUnit) AND
-                    (TempLine."Object ID" = 110201);
+                    (TempLine."Object ID" = DemoSubscriberID);
             IF Seen THEN
               ObjSelf := TempLine."Self ms";
           END ELSE
@@ -7578,7 +7609,7 @@ OBJECT Codeunit 110202 AL Profiler Self Test
       // в замере есть всегда, а времени в нем меньше, чем в таблицах под ним, - тем и
       // проверяется, что корень идет первым НЕ по времени.
       ProfilerMgt.RunDemo(200,TempLine);
-      ProfilerMgt.SetRootObject(3,110200);
+      ProfilerMgt.SetRootObject(TempLine."Object Type"::Report,DemoReportID);
       ProfilerMgt.NavRoot(TempLine);
 
       Cur.COPY(TempLine,TRUE);
@@ -7609,7 +7640,7 @@ OBJECT Codeunit 110202 AL Profiler Self Test
         UNTIL Cur.NEXT = 0;
       Cur.RESET;
 
-      Check(Passed,Total,Report,ChkRootFirstTxt,FirstObjID = 110200,
+      Check(Passed,Total,Report,ChkRootFirstTxt,FirstObjID = DemoReportID,
         STRSUBSTNO(RootFirstTxt,FirstObjID));
       Check(Passed,Total,Report,ChkSectionTxt,
         (Sections = 1) AND (Others > 0) AND (ABS(SectionSelf - OthersSelf) <= RollupTolerantMs) AND (OutOfOrder = 0),
@@ -7669,7 +7700,7 @@ OBJECT Codeunit 110202 AL Profiler Self Test
       CLEAR(ProfRun);
       ProfRun.Scope := ProfRun.Scope::"All Objects";
       ProfRun."Object Type" := ProfRun."Object Type"::Report;
-      ProfRun."Object ID" := 110200;
+      ProfRun."Object ID" := DemoReportID;
       RunNo := ProfilerMgt.SaveRun(ProfRun);
 
       CLEAR(ProfRun);
@@ -7688,7 +7719,7 @@ OBJECT Codeunit 110202 AL Profiler Self Test
       ProfilerMgt.DeleteRun(PlainNo);
 
       Check(Passed,Total,Report,ChkRootSavedTxt,
-        (FirstObjID = 110200) AND (Sections = 1) AND (PlainSections = 0),
+        (FirstObjID = DemoReportID) AND (Sections = 1) AND (PlainSections = 0),
         STRSUBSTNO(RootSavedTxt,FirstObjID,Sections,PlainFirst,PlainSections));
     END;
 
@@ -7706,6 +7737,10 @@ OBJECT Codeunit 110202 AL Profiler Self Test
       ObjSelf@1000000012 : Decimal;
       SumSelf@1000000013 : Decimal;
       Kids@1000000014 : Integer;
+      Below@1000000015 : Boolean;
+      OtherPlain@1000000016 : Integer;
+      RootPlain@1000000017 : Integer;
+      Depth@1000000018 : Integer;
     BEGIN
       // Настройка убирает с корня функции, которые платформа не зовет сама. Демонстрация
       // для этого и годится: у отчета двери отработали все до одной, поэтому обычные его
@@ -7751,7 +7786,8 @@ OBJECT Codeunit 110202 AL Profiler Self Test
       IF Cur.FINDSET THEN
         REPEAT
           IF Cur."Line Type" = Cur."Line Type"::Object THEN BEGIN
-            Seen := (Cur."Object Type" = Cur."Object Type"::CodeUnit) AND (Cur."Object ID" = 110201);
+            Seen := (Cur."Object Type" = Cur."Object Type"::CodeUnit) AND
+                    (Cur."Object ID" = DemoSubscriberID);
             IF Seen THEN
               ObjSelf := Cur."Self ms";
           END ELSE
@@ -7768,6 +7804,51 @@ OBJECT Codeunit 110202 AL Profiler Self Test
       Check(Passed,Total,Report,ChkPlainNetTxt,
         (Kids > 0) AND (ABS(ObjSelf - SumSelf) <= RollupTolerantMs),
         STRSUBSTNO(PlainNetTxt,ObjSelf,SumSelf,Kids));
+
+      // Ниже подписи "Остальные объекты" галка не действует. Прогон свой: нужен объект,
+      // у которого налицо ОБЕ стороны - живая дверь и отработавшая обычная функция, -
+      // иначе проверка проходит вхолостую. Издатель поднимает подписчика в 110201, это
+      // дверь; туда же идет прямой вызов RunPlainWork, это обычная функция. Рекурсия
+      // дает обычную функцию КОРНЮ: у него галка обязана работать по-прежнему.
+      ProfilerMgt.StartTrace(0,0,0,0);
+      FOR Index := 1 TO 50 DO BEGIN
+        ProfilerMgt.OnSelfTestEvent(Index,Acc);
+        Depth := Depth + ProfilerMgt.Recurse(30);
+        Demo.RunPlainWork(Index,Acc);
+      END;
+      ProfilerMgt.StopTrace;
+      ProfilerMgt.BuildResult(TempLine,0,0,TRUE);
+      ProfilerMgt.SetRootObject(TempLine."Object Type"::CodeUnit,CODEUNIT::"AL Line Profiler Mgt.");
+      ProfilerMgt.SetShowPlainFuncs(FALSE);
+      ProfilerMgt.NavRoot(TempLine);
+
+      Live := FALSE;
+      Cur.COPY(TempLine,TRUE);
+      Cur.RESET;
+      IF Cur.FINDSET THEN
+        REPEAT
+          CASE Cur."Line Type" OF
+            Cur."Line Type"::Section:
+              Below := TRUE;
+            Cur."Line Type"::Object:
+              Live := ProfilerMgt.LiveDoor(Cur."Object Type",Cur."Object ID");
+            Cur."Line Type"::"Trigger/Function":
+              IF Live THEN
+                IF NOT ProfilerMgt.IsEntryPoint(ProfilerMgt.RowFunc(Cur)) THEN
+                  IF Below THEN
+                    OtherPlain := OtherPlain + 1
+                  ELSE
+                    RootPlain := RootPlain + 1;
+          END;
+        UNTIL Cur.NEXT = 0;
+      Cur.RESET;
+      ProfilerMgt.SetShowPlainFuncs(TRUE);
+      // Корень держит сам кодюнит, и следующая проверка о нем не знает: сборка сбросит
+      // его сама, но не всякая проверка начинается со сборки.
+      ProfilerMgt.SetRootObject(0,0);
+
+      Check(Passed,Total,Report,ChkPlainSectionTxt,(OtherPlain > 0) AND (RootPlain = 0),
+        STRSUBSTNO(PlainSectionTxt,OtherPlain,RootPlain));
     END;
 
     LOCAL PROCEDURE CheckRecursionTotal@225(VAR Passed@1000000000 : Integer;VAR Total@1000000001 : Integer;VAR Report@1000000002 : Text);
@@ -7795,7 +7876,7 @@ OBJECT Codeunit 110202 AL Profiler Self Test
       FOR Index := 1 TO 50 DO
         Depth := Depth + ProfilerMgt.Recurse(30);
       ProfilerMgt.StopTrace;
-      ProfilerMgt.BuildResult(TempLine,5,110200,TRUE);
+      ProfilerMgt.BuildResult(TempLine,TempLine."Object Type"::CodeUnit,CODEUNIT::"AL Line Profiler Mgt.",TRUE);
       ProfilerMgt.NavRoot(TempLine);
 
       // Тело рекурсивной функции на корне не раскрыто - открываем щелчком по заголовку,
@@ -7914,7 +7995,8 @@ OBJECT Codeunit 110202 AL Profiler Self Test
       Callee.COPY(TempLine,TRUE);
 
       TypeNo := Caller."Object Type"::CodeUnit;
-      SubToken := FORMAT(TypeNo) + ProfilerMgt.TokenSep + FORMAT(DemoSubscriberID) + ProfilerMgt.TokenSep;
+      SubToken := FORMAT(TypeNo) + ProfilerMgt.TokenSep +
+                  FORMAT(DemoSubscriberID) + ProfilerMgt.TokenSep;
 
       Caller.RESET;
       Caller.SETRANGE("Line Type",Caller."Line Type"::Code);
@@ -7964,11 +8046,18 @@ OBJECT Codeunit 110202 AL Profiler Self Test
         STRSUBSTNO(LoadedHintTxt,Hints,FORMAT(ROUND(WorstMs,ProfilerMgt.MsRounding))));
     END;
 
+    LOCAL PROCEDURE DemoReportID@236() : Integer;
+    BEGIN
+      // Отчет демонстрации. Символьной ссылкой, а не числом: номер сам по себе ничего
+      // не объясняет, а при переносе инструмента в другой диапазон разъезжается молча.
+      EXIT(REPORT::"AL Profiler Demo Report");
+    END;
+
     LOCAL PROCEDURE DemoSubscriberID@222() : Integer;
     BEGIN
       // Кодюнит демонстрационного подписчика. Обкатка знает его в лицо: путь к нему -
       // единственное, что нельзя пройти по тексту строки, и проверять надо именно его.
-      EXIT(110201);
+      EXIT(CODEUNIT::"AL Profiler Demo Subscriber");
     END;
 
     LOCAL PROCEDURE RunEdges@224(RunNo@1000000000 : Integer;VAR Nameless@1000000001 : Integer) : Integer;
@@ -8035,12 +8124,14 @@ OBJECT Codeunit 110202 AL Profiler Self Test
             Above := Above + 1;
           IF Obj."Object Type" = Obj."Object Type"::CodeUnit THEN
             CASE Obj."Object ID" OF
-              110202:
+              // Метка CASE обязана быть КОНСТАНТОЙ, поэтому здесь символьная ссылка, а
+              // не функция-имя рядом: вызов компилятор в метке не примет.
+              CODEUNIT::"AL Profiler Self Test":
                 BEGIN
                   CallerTotal := Obj."Total ms";
                   CallerSelf := Obj."Self ms";
                 END;
-              110201:
+              CODEUNIT::"AL Profiler Demo Subscriber":
                 CalleeSelf := Obj."Self ms";
             END;
         UNTIL Obj.NEXT = 0;
@@ -8699,7 +8790,7 @@ OBJECT Codeunit 110202 AL Profiler Self Test
       TempSql.INIT;
       TempSql."Entry No." := 1;
       TempSql."Object Type" := TempSql."Object Type"::CodeUnit;
-      TempSql."Object ID" := 110200;
+      TempSql."Object ID" := CODEUNIT::"AL Line Profiler Mgt.";
       TempSql."Line No." := 1;
       TempSql.Executions := 1;
       TempSql.SetStatement(Statement);
@@ -8728,7 +8819,7 @@ OBJECT Codeunit 110202 AL Profiler Self Test
       TempSql.INIT;
       TempSql."Entry No." := 1;
       TempSql."Object Type" := TempSql."Object Type"::CodeUnit;
-      TempSql."Object ID" := 110200;
+      TempSql."Object ID" := CODEUNIT::"AL Line Profiler Mgt.";
       TempSql."Line No." := 1;
       TempSql.Executions := 1;
       TempSql.SetStatement(Statement);
@@ -11057,8 +11148,8 @@ OBJECT Page 110203 AL Profiler Setup
                 Name=SelfTestEnabled;
                 CaptionML=[ENU=Self Test Enabled;
                            RUS=Разрешить обкатку];
-                ToolTipML=[ENU=Specifies whether running codeunit 110200 performs the built-in self test. The self test clears the code coverage log and writes a file, so it is off unless asked for.;
-                           RUS=Определяет, выполняет ли запуск кодового модуля 110200 встроенную обкатку. Обкатка стирает журнал покрытия кода и пишет файл, поэтому по умолчанию выключена.];
+                ToolTipML=[ENU=Specifies whether running codeunit 110202 performs the built-in self test. The self test clears the code coverage log and writes a file, so it is off unless asked for.;
+                           RUS=Определяет, выполняет ли запуск кодового модуля 110202 встроенную обкатку. Обкатка стирает журнал покрытия кода и пишет файл, поэтому по умолчанию выключена.];
                 ApplicationArea=#All;
                 SourceExpr="Self Test Enabled" }
 
@@ -11495,11 +11586,25 @@ OBJECT Page 110204 AL Profiler SQL Statements
       WeightStyle := 'Standard';
       IF ShownTotalMs <= 0 THEN
         EXIT;
-      IF "Total ms" * 5 >= ShownTotalMs THEN
+      IF "Total ms" * HotStatementPart >= ShownTotalMs THEN
         WeightStyle := 'Unfavorable'
       ELSE
-        IF "Total ms" * 20 >= ShownTotalMs THEN
+        IF "Total ms" * WarmStatementPart >= ShownTotalMs THEN
           WeightStyle := 'Ambiguous';
+    END;
+
+    LOCAL PROCEDURE HotStatementPart@6() : Integer;
+    BEGIN
+      // Горячий запрос: на него ушла пятая часть всего показанного времени и больше.
+      // Доля, а не миллисекунды: список открывают по ОДНОЙ строке кода, и порог в
+      // миллисекундах на быстрой строке красил бы все подряд, а на медленной - ничего.
+      EXIT(5);
+    END;
+
+    LOCAL PROCEDURE WarmStatementPart@7() : Integer;
+    BEGIN
+      // Теплый запрос: двадцатая часть. Ниже нее заливки нет вовсе.
+      EXIT(20);
     END;
 
     LOCAL PROCEDURE CopyStatement@3();
