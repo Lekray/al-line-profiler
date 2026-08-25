@@ -17,12 +17,15 @@
     Ключ -Previous заставляет сравнивать с конкретным пакетом вместо delivered.txt -
     нужен, когда база сравнения ещё не заведена или уехало что-то другое.
 
+.PARAMETER Mail
+    Собрать пакет ПИСЬМОМ: zip с объектами, APPLY.txt, CHANGES.txt и манифестом, а на
+    отправку - его тело в base64. Нужен там, где вложений не принимают вовсе.
+    БЕЗ этого ключа собирается то, что уезжает обычно: ОДИН голый файл
+    out\send\LineProfiler.cp866.txt, который и прикладывают к заявке.
+
 .PARAMETER ObjectsOnly
-    Отдать ГОЛЫЕ объекты, без zip, README и манифеста - когда нужен просто файл, который
-    импортируют. Файл на отправку кладётся в out\send и лежит там ОДИН: каталог чистится
-    при каждой сборке, поэтому правило без оговорок - отправлять всё, что в нём лежит.
-    Тот же текст в UTF-8 остаётся в out\read, для чтения глазами, и рядом с отправляемым
-    не лежит НИКОГДА: пока два похожих имени соседствовали, однажды уехало не то.
+    Прежнее имя того, что стало умолчанием. Ничего не меняет и ничего не портит -
+    оставлен, чтобы прежняя команда не падала на неизвестном ключе.
 
 .PARAMETER Previous
     Пакет, с которым сравнивать, вместо delivered.txt.
@@ -60,13 +63,15 @@
 
 .EXAMPLE
     pwsh scripts/New-DeltaPackage.ps1
-    Пакет: архив с объектами, APPLY.txt, CHANGES.txt и манифестом - и сразу тело письма,
-    которым он уезжает. Почта контура вложений не принимает, поэтому отправляется НЕ
-    архив, а его текст: письма ложатся в out\send, сам архив - в out\read для сверки.
+    Один файл out\send\LineProfiler.cp866.txt - изменённые объекты, то,
+    что уезжает на объект. Больше в out\send нет ничего: читаемая копия и инструкция
+    по применению ложатся в out\read и рядом с отправляемым не лежат никогда.
 
 .EXAMPLE
-    pwsh scripts/New-DeltaPackage.ps1 -ObjectsOnly
-    Файл с изменёнными объектами - то, что уезжает на объект.
+    pwsh scripts/New-DeltaPackage.ps1 -Mail
+    Архив с объектами, APPLY.txt, CHANGES.txt и манифестом - и сразу тело письма, которым
+    он уезжает: почта контура вложений не принимает. Письма ложатся в out\send, сам
+    архив - в out\read для сверки.
 
 .EXAMPLE
     pwsh scripts/New-DeltaPackage.ps1 -Record
@@ -76,6 +81,7 @@
 param(
     [string] $Previous,
     [string] $OutDir,
+    [switch] $Mail,
     [switch] $ObjectsOnly,
     [switch] $Record,
     [string[]] $Only,
@@ -115,6 +121,45 @@ function Get-TextHash {
     $sha = [Security.Cryptography.SHA256]::Create()
     try { return [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Text))).Replace('-', '').ToLower() }
     finally { $sha.Dispose() }
+}
+
+# Инструкция по применению одна на оба пути: и внутри пакета, и рядом с голым файлом.
+# Форму её знает ровно одно место - разойдясь, две копии соврали бы по-разному, а
+# ошибается такая бумага один раз и сразу на объекте.
+function Get-ApplyText {
+    param([string[]]$Take, [string]$ImportPath, [bool]$DllSent)
+    $t = @(
+        'КАК ПРИМЕНИТЬ',
+        '',
+        'Это ИЗМЕНЕНИЯ. Они дополняют установленную поставку, а не заменяют её.',
+        '',
+        ('1. C/SIDE -> File -> Import -> ' + $ImportPath + ' (объектов: ' + $Take.Count + ').'),
+        '   C/SIDE заменит ровно эти объекты, остальные не тронет.',
+        '2. Скомпилировать импортированные объекты.',
+        '3. Закрыть и открыть заново клиент. Codeunit 110200 объявлен SingleInstance,',
+        '   и открытая сессия держит прежний экземпляр до переподключения.',
+        ''
+    )
+    # Таблица в поставке - это правка СХЕМЫ рабочей базы, а не только кода. Импортирующий
+    # должен знать это ДО того, как C/SIDE спросит его про синхронизацию.
+    $tables = @($Take | Where-Object { $_ -like 'Table *' })
+    if ($tables.Count -gt 0) {
+        $t += @(
+            ('ВНИМАНИЕ: в поставке есть таблицы (' + ($tables -join ', ') + ') - затрагивается СХЕМА базы.'),
+            '   При импорте C/SIDE спросит про синхронизацию схемы: отвечать "Now - with validation".',
+            '   Поля только добавляются, существующие данные не теряются.',
+            '')
+    }
+    if ($DllSent) {
+        $t += @('СБОРКА ПРИЁМНИКА ИЗМЕНИЛАСЬ - выложить шагом 03-Build-Receiver.ps1.', '')
+    } else {
+        $t += @('Сборка приёмника не менялась: Add-ins не трогается, служба не перезапускается.', '')
+    }
+    # Обкатка живёт в СВОЁМ объекте, и зовут её напрямую. Строка ошибается молча: на
+    # Codeunit 110200 кнопка Run отработает и не проверит ничего.
+    $t += @('ПРОВЕРКА', '  Настройка -> галка "Обкатка" -> Codeunit 110202 -> Run.',
+            '  Первая строка вердикта: passed N of M.', '')
+    return $t
 }
 
 $curFile = Join-Path $repo 'LineProfiler.txt'
@@ -266,12 +311,15 @@ $tmpDoc = Join-Path $env:TEMP ('lp-doc-' + [guid]::NewGuid().ToString('N').Subst
 $body = [IO.File]::ReadAllText($tmpDoc, [Text.UTF8Encoding]::new($false))
 Remove-Item $tmpDoc -Force
 
-# --- голые объекты -----------------------------------------------------------
-if ($ObjectsOnly) {
-    # Отправляемый файл лежит ОДИН и в собственном каталоге. Пока соседями по out\ были
-    # вчерашняя дельта и utf8-близнец "для чтения", выбор делался глазами по имени - и
-    # однажды уехал не тот файл. Каталоги чистятся при КАЖДОЙ сборке, поэтому правило
-    # звучит без оговорок: отправлять всё, что лежит в out\send, а там всегда один файл.
+# --- то, что уезжает на объект: ОДИН файл ------------------------------------
+if (-not $Mail) {
+    # Отправляемый файл лежит ОДИН, в собственном каталоге и под ОДНИМ И ТЕМ ЖЕ именем.
+    # Пока соседями по out\ были вчерашняя дельта и utf8-близнец "для чтения", выбор
+    # делался глазами по имени - и однажды уехал не тот файл. Каталоги чистятся при
+    # КАЖДОЙ сборке, поэтому правило звучит без оговорок: отправлять всё, что лежит в
+    # out\send, а там всегда один файл.
+    # Имя постоянное, без даты: на той стороне файл прикладывают к заявке, и имя,
+    # меняющееся от сборки к сборке, там только мешает.
     $send = Join-Path $OutDir 'send'
     $read = Join-Path $OutDir 'read'
     foreach ($d in @($send, $read)) {
@@ -279,8 +327,8 @@ if ($ObjectsOnly) {
         else { New-Item -ItemType Directory -Path $d | Out-Null }
     }
     # Прежние плоские файлы из корня out\ сносим тем же заходом: оставшись лежать рядом,
-    # они снова стали бы кандидатами на отправку.
-    @(Get-ChildItem -LiteralPath $OutDir -Filter 'LineProfiler-changed-*' -File) |
+    # они снова стали бы кандидатами на отправку. Заодно и остатки другого пути.
+    @(Get-ChildItem -LiteralPath $OutDir -Filter 'LineProfiler-*' -File) |
         ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
 
     # Сборка идёт в каталоге для чтения: convert-for-cside кладёт cp866 рядом с исходным
@@ -291,18 +339,31 @@ if ($ObjectsOnly) {
     & (Join-Path $PSScriptRoot 'convert-for-cside.ps1') -TaskFile $txt | Out-Null
     $made = Join-Path $read ("LineProfiler-changed-$stamp.cp866.txt")
     if (-not (Test-Path $made)) { throw 'не собрался cp866' }
-    $cp = Join-Path $send ("LineProfiler-changed-$stamp.cp866.txt")
+    $cp = Join-Path $send 'LineProfiler.cp866.txt'
     Move-Item -LiteralPath $made -Destination $cp -Force
 
     # Сторож на само правило: если в send оказалось не одно, отправлять снова наугад.
     $inSend = @(Get-ChildItem -LiteralPath $send -Force)
     if ($inSend.Count -ne 1) { throw ('в out\send файлов ' + $inSend.Count + ', а должен быть ровно один') }
 
+    # Инструкция рядом с файлом не лежит - его отправляют одного, - но и пропасть она не
+    # должна: импорт таблицы тянет синхронизацию схемы, и знать об этом принимающая
+    # сторона обязана ДО того, как C/SIDE спросит. Кладём в out\read, к читаемой копии.
+    $applyPath = Join-Path $read 'APPLY.txt'
+    [IO.File]::WriteAllLines($applyPath, (Get-ApplyText -Take $take -ImportPath 'LineProfiler.cp866.txt' -DllSent $false), [Text.UTF8Encoding]::new($true))
+
     Write-Host ''
     Write-Host 'ИТОГ' -ForegroundColor Green
     Step ('ОТПРАВЛЯТЬ: ' + $cp + "   {0:N0} байт" -f (Get-Item $cp).Length)
-    Step ('в этом каталоге он единственный - брать можно не глядя на имя')
+    Step ('в этом каталоге он единственный, и имя у него всегда одно и то же')
     Step ('для чтения: ' + $txt + "   {0:N0} байт, UTF-8" -f (Get-Item $txt).Length)
+    Step ('как применить: ' + $applyPath)
+    $tablesSent = @($take | Where-Object { $_ -like 'Table *' })
+    if ($tablesSent.Count -gt 0) {
+        Write-Host ''
+        Write-Host ('  ВНИМАНИЕ: в поставке таблицы (' + ($tablesSent -join ', ') +
+                    ') - при импорте будет синхронизация СХЕМЫ базы.') -ForegroundColor Yellow
+    }
     exit 0
 }
 
@@ -339,35 +400,7 @@ if ($Previous) {
 
 $commit = (& git -C $repo rev-parse --short HEAD 2>$null)
 $now = (Get-Date -Format 'yyyy-MM-dd HH:mm')
-$apply = @(
-    'КАК ПРИМЕНИТЬ',
-    '',
-    'Это ИЗМЕНЕНИЯ. Они дополняют установленную поставку, а не заменяют её.',
-    '',
-    ('1. C/SIDE -> File -> Import -> objects\LineProfiler.cp866.txt (объектов: ' + $take.Count + ').'),
-    '   C/SIDE заменит ровно эти объекты, остальные не тронет.',
-    '2. Скомпилировать импортированные объекты.',
-    '3. Закрыть и открыть заново клиент. Codeunit 110200 объявлен SingleInstance,',
-    '   и открытая сессия держит прежний экземпляр до переподключения.',
-    ''
-)
-# Таблица в поставке - это правка СХЕМЫ рабочей базы, а не только кода. Импортирующий
-# должен знать это ДО того, как C/SIDE спросит его про синхронизацию.
-$tablesSent = @($take | Where-Object { $_ -like 'Table *' })
-if ($tablesSent.Count -gt 0) {
-    $apply += @(
-        ('ВНИМАНИЕ: в поставке есть таблицы (' + ($tablesSent -join ', ') + ') - затрагивается СХЕМА базы.'),
-        '   При импорте C/SIDE спросит про синхронизацию схемы: отвечать "Now - with validation".',
-        '   Поля только добавляются, существующие данные не теряются.',
-        '')
-}
-if ($dllSent) {
-    $apply += @('СБОРКА ПРИЁМНИКА ИЗМЕНИЛАСЬ - выложить шагом 03-Build-Receiver.ps1.', '')
-} else {
-    $apply += @('Сборка приёмника не менялась: Add-ins не трогается, служба не перезапускается.', '')
-}
-$apply += @('ПРОВЕРКА', '  Настройка -> галка "Обкатка" -> Codeunit 110200 -> Run.',
-            '  Первая строка вердикта: passed N of M.', '')
+$apply = Get-ApplyText -Take $take -ImportPath ('objects\LineProfiler.cp866.txt') -DllSent $dllSent
 [IO.File]::WriteAllLines((Join-Path $stage 'APPLY.txt'), $apply, [Text.UTF8Encoding]::new($true))
 
 $ch = @('Что изменилось', '', ("Собран $now, коммит $commit"), ("Сравнение с: $baseName"), '', 'ОБЪЕКТЫ:')
