@@ -2,7 +2,7 @@
 # Отсюда считается, какие объекты менялись ПОСЛЕ загрузки. Обновлять только
 # после того, как загрузка действительно прошла: pwsh scripts/New-DeltaPackage.ps1 -Record
 
-# Источник записи: текущий LineProfiler.txt (только Table 110200,Table 110204,Codeunit 110200,Codeunit 110202,Page 110200,Page 110203)
+# Источник записи: текущий LineProfiler.txt (только Codeunit 110200,Codeunit 110201,Codeunit 110202,Page 110203,Page 110204)
 
 Table 110200         d968e1762677027bdfb07d12606d1e5a71911ec9f000ad7c50420b5fa548f6b4
 Table 110201         d18447a754199b4c3f6295790b8e2fd6c2cebb04ec4e45910f78c971359298f5
@@ -13,11 +13,11 @@ Table 110205         21639f654a3c164d9c6f88e139b907c20f25658b5be9afa307baed8e9ff
 Table 110206         02463b0ac7699eaab96db26abee40fc9e044560be3d04e8f12af67b87397bf78
 Table 110207         2d3baf0990524075d34e19f2a7bff671f933dbb5c27af0a85d57621669b91ea4
 Report 110200        6a8b5c5e456690759b1b8c9440a1efe2819d336794ee51799e44f75474372f17
-Codeunit 110200      35166913d7a89b0e29815979cfe9fd9805d9f817dc48c39f7704aed0ec495e5d
-Codeunit 110201      f0048b36d028e1ca124d24125402a332e67e548990649417d788b2092809bb0b
-Codeunit 110202      4e11fae2b77e6c5bc5d91223a3a9baa40f890faead00e24d8e6879c20746aa66
+Codeunit 110200      39765cdaa2639ebd4f42eeb66dfe1d91ac4615d57e18b8483355162c3c9848c6
+Codeunit 110201      b55f06c8d3f4daf2a37e3ec73a50687d81d6b77ec1fdab8a71376de94112e1a6
+Codeunit 110202      98e0029cc96e8e6e9eaf07106157704423a768a371202d8562d46adbfe74f975
 Page 110200          f158baf1d22cf472574be553ad9aad312dcbbd86ed85918248f10dc73ed3d333
 Page 110201          a58fc0610418e52e655fa8e25d36bfb60c4b0d3e2d6fe8b4151ee566545d95bd
 Page 110202          9add19eb5ae1e4d294004fefe4238df11efaaa15cce14abbf00692327bdcef6f
-Page 110203          dedf6dc1026b10126b72b0f57a564c4d3af223c4a500e6ad7279597738f92d00
-Page 110204          3a695aaf76c1dc1a622fd76a65ed9e4f7ac993c6d690bd840e910de04b67bd5d
+Page 110203          2bf6ec97ed3b49178c5bc7afa55d33e4ce26d9c75c1a3a530abb31f5e54e0088
+Page 110204          aba6382193927f0101376ef755492a905d9990cddfbfaf5f8af2b8c161adeaa7
